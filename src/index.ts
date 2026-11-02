@@ -8,10 +8,14 @@ import { BridgeServer } from './bridge/server.js';
 import { loadConfig, SAFE_MODE_OFF_WARNING } from './config.js';
 import { TrafficLedger } from './gateway/ledger.js';
 import { createServer, ledgerPath, SERVER_VERSION } from './server.js';
+import { parseSetupArgs, realSetupEnv, runSetup } from './setup.js';
 
 const HELP = `booksy-mcp ${SERVER_VERSION}
 
   booksy-mcp                     Start the MCP server on stdio (what MCP clients run).
+  booksy-mcp setup               Add the server to your MCP clients and unpack the extension.
+                                 Options: --client claude-code|codex|claude-desktop|all,
+                                 --dry-run, --uninstall, --no-open, --extension-dir <folder>.
   booksy-mcp extension [folder]  Copy the browser extension to a folder and print the path.
   booksy-mcp reset-pairing       Forget the paired extension.
   booksy-mcp reset-cooldown      End a stop after a block. First check the panel works by hand.
@@ -60,12 +64,25 @@ async function serve(): Promise<void> {
   await server.connect(new StdioServerTransport());
 }
 
+function setup(args: string[]): void {
+  const options = parseSetupArgs(args);
+  if ('error' in options) {
+    console.error(`${options.error}\n\n${HELP}`);
+    process.exit(1);
+  }
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const env = realSetupEnv(fileURLToPath(import.meta.url), join(root, 'extension', 'dist'));
+  process.exit(runSetup(options, env));
+}
+
 const [command, argument] = process.argv.slice(2);
 
 if (command === '--help' || command === '-h') {
   process.stdout.write(HELP);
 } else if (command === '--version' || command === '-v') {
   process.stdout.write(`${SERVER_VERSION}\n`);
+} else if (command === 'setup') {
+  setup(process.argv.slice(3));
 } else if (command === 'extension') {
   installExtension(argument);
 } else if (command === 'reset-pairing') {

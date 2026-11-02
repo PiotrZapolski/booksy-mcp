@@ -17,6 +17,8 @@
     "extension/dist",
     "server.json",
     "README.md",
+    "README.pl.md",
+    "INSTALL.md",
     "LICENSE",
     "docs/endpoints.md"
   ],

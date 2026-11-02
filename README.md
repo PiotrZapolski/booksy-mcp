@@ -1,5 +1,15 @@
 # booksy-mcp
 
+> ### Install in 3 minutes
+>
+> Paste this into Claude Code or Codex:
+>
+> ```text
+> Install booksy-mcp following https://github.com/PiotrZapolski/booksy-mcp/blob/master/INSTALL.md and walk me through it step by step.
+> ```
+>
+> Your agent does the setup. You only turn on Chrome Developer mode, click "Load unpacked", type a pairing code and restart the client. Or run `node dist/index.js setup` yourself after building (see [Install](#install)). Polish: [README.pl.md](README.pl.md).
+
 An [MCP](https://modelcontextprotocol.io) server for **Booksy Biz**. It lets your AI assistant read
 your salon's calendar, staff schedules, clients, payments and reports through your own logged-in
 browser tab.
@@ -47,6 +57,8 @@ you would. [Safe mode](#safe-mode) is on by default and sets the numbers.
 - **No retries.** A 403, a 429, a block or a captcha stops everything at once, in any mode.
 
 ## Install
+
+Shortcut: `node dist/index.js setup` (or `npx -y booksy-mcp setup` once published) adds the server to Claude Code, Codex and Claude Desktop, unpacks the extension to `~/booksy-mcp/extension` and prints the next steps. Options: `--client claude-code|codex|claude-desktop|all`, `--dry-run`, `--uninstall`. Agents follow [INSTALL.md](INSTALL.md). The manual steps are below.
 
 You need Node.js 20 or newer and Chrome 121 or newer.
 

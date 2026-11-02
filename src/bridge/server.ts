@@ -18,6 +18,8 @@ const AUTH_TIMEOUT_MS = 10_000;
 const MAX_FRAME_BYTES = 64 * 1024 * 1024;
 const MAX_PENDING_SOCKETS = 3;
 const RESPONSE_MARGIN_MS = 5_000;
+/** How long a call waits for the extension to (re)connect before it gives up. */
+export const DEFAULT_CONNECT_WAIT_MS = 12_000;
 
 export type BridgeCall =
   | { type: 'call'; request: PanelRequest }
@@ -59,9 +61,10 @@ export class BridgeServer implements Bridge {
   private portBusy = false;
   private unauthenticated = 0;
   private readonly pending = new Map<string, Pending>();
+  private readonly connectWaiters = new Set<() => void>();
 
   constructor(
-    private readonly options: { port: number; extensionIds: string[] },
+    private readonly options: { port: number; extensionIds: string[]; connectWaitMs?: number },
     private readonly pairing: Pairing,
   ) {}
 
@@ -95,6 +98,7 @@ export class BridgeServer implements Bridge {
   }
 
   async stop(): Promise<void> {
+    for (const wake of [...this.connectWaiters]) wake();
     for (const client of this.server?.clients ?? []) client.terminate();
     await new Promise<void>((resolve) => {
       if (this.server) this.server.close(() => resolve());
@@ -119,11 +123,8 @@ export class BridgeServer implements Bridge {
     };
   }
 
-  call(message: BridgeCall, timeoutMs: number): Promise<PanelResult> {
-    const socket = this.active;
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      return Promise.reject(this.notConnected());
-    }
+  async call(message: BridgeCall, timeoutMs: number): Promise<PanelResult> {
+    const socket = await this.connectedSocket();
     const id = randomUUID();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -138,6 +139,32 @@ export class BridgeServer implements Bridge {
       this.pending.set(id, { resolve, reject, timer });
       this.send(socket, { ...message, id } as ServerMessage);
     });
+  }
+
+  /**
+   * After a client restart the extension needs a moment to reconnect. A paired extension is given
+   * a short time to do so before the call fails. Before pairing nobody can connect, so it fails at once.
+   */
+  private async connectedSocket(): Promise<WebSocket> {
+    const open = (): WebSocket | null =>
+      this.active?.readyState === WebSocket.OPEN ? this.active : null;
+    const ready = open();
+    if (ready) return ready;
+    const wait = this.options.connectWaitMs ?? DEFAULT_CONNECT_WAIT_MS;
+    if (wait > 0 && !this.portBusy && this.server && this.pairing.secret() !== null) {
+      await new Promise<void>((resolve) => {
+        const done = (): void => {
+          clearTimeout(timer);
+          this.connectWaiters.delete(done);
+          resolve();
+        };
+        const timer = setTimeout(done, wait);
+        this.connectWaiters.add(done);
+      });
+      const late = open();
+      if (late) return late;
+    }
+    throw this.notConnected();
   }
 
   private notConnected(): BooksyError {
@@ -231,6 +258,7 @@ export class BridgeServer implements Bridge {
   private promote(socket: WebSocket): void {
     const previous = this.active;
     this.active = socket;
+    for (const wake of [...this.connectWaiters]) wake();
     if (previous && previous !== socket) previous.close(4002, 'replaced');
   }
 
