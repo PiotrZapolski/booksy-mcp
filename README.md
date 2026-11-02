@@ -126,7 +126,7 @@ the names in the second column. Environment variables win.
 | `BOOKSY_MCP_WRITE_TOOLS` | `writeTools` | none | Write tools to enable, see [Writes](#writes) |
 | `BOOKSY_MCP_DISABLED_TOOLS` | `disabledTools` | none | Tools to turn off, reads included |
 | `BOOKSY_MCP_EXPORT_DIR` | `exportDir` | `~/BooksyExports` | Where files are saved |
-| `BOOKSY_MCP_MASK_CONTACTS` | `maskContacts` | off | Mask phones and e-mails in tool output |
+| `BOOKSY_MCP_REDACT_PII` | `redactPii` | off | Mask client e-mails and phone numbers, see [Security and privacy](#security-and-privacy) |
 | `BOOKSY_MCP_SAFE_MODE` | `safeMode` | on | See [Safe mode](#safe-mode). Only `0`, `false`, `off`, `no` turn it off |
 | `BOOKSY_MCP_MIN_INTERVAL_MS` | `minIntervalMs` | none | Longer gap. Cannot go below safe mode |
 | `BOOKSY_MCP_MAX_REQUESTS_PER_HOUR` | `maxRequestsPerHour` | none | Lower hourly limit. Cannot go above safe mode |
@@ -353,7 +353,9 @@ fee preview only.
 
 `report_export` saves any report the panel offers as a file, exactly as Booksy delivers it. It can
 also convert it to CSV or return the rows as JSON. `stats_report_catalog` lists the report keys
-available to your salon, because they depend on your plan and country.
+available to your salon, because they depend on your plan and country. With `output=json` each sheet
+gives the table under its real column labels, without title lines: `rows` up to the summary line,
+`totals` for that line, and `rows_below_totals` for anything printed under it.
 
 `calendar_agenda` splits long ranges into windows and reads them one after another with a pause. In
 safe mode a range can have at most 92 days. `appointment_changes_feed` reports new, moved and cancelled appointments since
@@ -368,8 +370,13 @@ its last run, using a small local snapshot of ids, times and statuses.
 - The wire protocol carries an allowlist rule id and parameter values, never a URL. The extension
   checks the rule again by itself.
 - Your assistant receives what the tools return, including client data. Your MCP client's provider
-  may process it under its own terms. You remain responsible for your clients' personal data. Use
-  `BOOKSY_MCP_MASK_CONTACTS=1` to mask phones and e-mails.
+  may process it under its own terms. You remain responsible for your clients' personal data.
+- `BOOKSY_MCP_REDACT_PII=1` (`redactPii: true`) masks e-mails and phone numbers in everything tools
+  return, including `report_export` with `output=json`: `jan@example.com` becomes `ja***om`. It
+  applies to contact fields and to e-mails and `+` numbers inside free text. Names are not masked,
+  and neither is a file: exports saved on disk stay exactly as Booksy delivered them, the CSV
+  included. Off by default, because an assistant then cannot call or write to a client for you.
+  The former name `BOOKSY_MCP_MASK_CONTACTS` still works.
 - Exports and snapshots are written with owner-only permissions. Delete them when you are done.
 
 Client chat is the one exception to "no token handled": chat messages live with a third-party chat

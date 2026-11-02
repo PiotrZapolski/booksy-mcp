@@ -10,6 +10,18 @@ function load(env: Record<string, string> = {}, file?: object) {
   return loadConfig({ BOOKSY_MCP_CONFIG_DIR: dir, ...env }).traffic;
 }
 
+describe('redactPii', () => {
+  it('is off by default and has an environment switch and a former name', () => {
+    const dir = tempDir();
+    const base = { BOOKSY_MCP_CONFIG_DIR: dir };
+    expect(loadConfig(base).redactPii).toBe(false);
+    expect(loadConfig({ ...base, BOOKSY_MCP_REDACT_PII: '1' }).redactPii).toBe(true);
+    expect(loadConfig({ ...base, BOOKSY_MCP_MASK_CONTACTS: '1' }).redactPii).toBe(true);
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ redactPii: true }));
+    expect(loadConfig(base).redactPii).toBe(true);
+  });
+});
+
 describe('safe mode switch', () => {
   it('is on by default', () => {
     expect(load()).toEqual(SAFE_TRAFFIC);

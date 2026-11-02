@@ -2,7 +2,7 @@ import { strToU8, zipSync } from 'fflate';
 import { statSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { extensionFor, saveFile } from '../src/exports/files.js';
-import { readWorkbook, toCsv, toRecords } from '../src/exports/sheet.js';
+import { readWorkbook, toCsv, toRecords, toTable } from '../src/exports/sheet.js';
 import { tempDir } from './helpers.js';
 
 export function sampleWorkbook(): Uint8Array {
@@ -28,6 +28,83 @@ export function sampleWorkbook(): Uint8Array {
     'xl/styles.xml': strToU8('<ignored/>'),
   });
 }
+
+/** Layout of a Booksy report: title lines, period, labels from column C, row numbers in column B. */
+export function reportWorkbook(): Uint8Array {
+  const text = (ref: string, value: string): string =>
+    `<c r="${ref}" t="inlineStr"><is><t>${value}</t></is></c>`;
+  const number = (ref: string, value: string): string => `<c r="${ref}"><v>${value}</v></c>`;
+  return zipSync({
+    'xl/workbook.xml': strToU8(
+      '<workbook xmlns:r="x"><sheets><sheet name="Lista wizyt" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    ),
+    'xl/_rels/workbook.xml.rels': strToU8(
+      '<Relationships><Relationship Id="rId1" Type="t" Target="worksheets/sheet1.xml"/></Relationships>',
+    ),
+    'xl/worksheets/sheet1.xml': strToU8(
+      '<worksheet><sheetData>' +
+        `<row r="1">${text('B1', 'Booksy')}</row>` +
+        `<row r="2">${text('B2', 'Lista wizyt')}</row>` +
+        `<row r="3">${text('B3', 'Okres od 01.10.2026 do 31.10.2026')}</row>` +
+        '<row r="4"/>' +
+        `<row r="5">${text('C5', 'Klient')}${text('D5', 'Data')}${text('E5', 'Kwota')}${text('F5', 'Telefon')}${text('G5', 'E-mail')}</row>` +
+        `<row r="6">${number('B6', '1')}${text('C6', 'Sample Client')}${text('D6', '31.10.2026 19:00')}${number('E6', '130')}${text('F6', '500600700')}${text('G6', 'client@example.com')}</row>` +
+        `<row r="7">${number('B7', '2')}${text('C7', 'Other Client')}${text('D7', '30.10.2026 10:00')}${number('E7', '9.630000000000001')}${text('F7', '')}${text('G7', '')}</row>` +
+        `<row r="8">${text('C8', 'Razem')}${number('E8', '139.63000000000002')}</row>` +
+        '<row r="9"/>' +
+        `<row r="10">${text('C10', 'Metoda')}${text('D10', 'Kwota')}</row>` +
+        `<row r="11">${text('C11', 'Karta')}${number('D11', '130')}</row>` +
+        '</sheetData></worksheet>',
+    ),
+  });
+}
+
+describe('report layout', () => {
+  const [sheet] = readWorkbook(reportWorkbook());
+  const table = toTable(sheet?.rows ?? []);
+
+  it('finds the labels under the title lines, not the wider first data row', () => {
+    expect(table.records[0]).toEqual({
+      Klient: 'Sample Client',
+      Data: '31.10.2026 19:00',
+      Kwota: '130',
+      Telefon: '500600700',
+      'E-mail': 'client@example.com',
+    });
+  });
+
+  it('stops at the summary and keeps what lies below it apart', () => {
+    expect(table.records).toHaveLength(2);
+    expect(table.totals).toMatchObject({ Klient: 'Razem', Kwota: '139.63' });
+    expect(table.extraRows).toEqual([
+      ['', '', 'Metoda', 'Kwota'],
+      ['', '', 'Karta', '130'],
+    ]);
+  });
+
+  it('removes float noise from numbers and nothing else', () => {
+    expect(table.records[1]?.Kwota).toBe('9.63');
+    expect(sheet?.rows.flat()).toContain('500600700');
+  });
+
+  it('keeps an unlabelled column that is not a row counter', () => {
+    const records = toRecords([
+      ['Nazwa', 'Kwota', ''],
+      ['A', '10', 'x'],
+      ['B', '20', 'y'],
+    ]);
+    expect(records[1]).toEqual({ Nazwa: 'B', Kwota: '20', column_3: 'y' });
+  });
+
+  it('handles a table labelled with values, such as one column per month', () => {
+    const records = toRecords([
+      ['Tytuł'],
+      ['Pracownik', '10.2026', '11.2026'],
+      ['A', '1', '2'],
+    ]);
+    expect(records).toEqual([{ Pracownik: 'A', '10.2026': '1', '11.2026': '2' }]);
+  });
+});
 
 describe('readWorkbook', () => {
   it('reads shared strings, inline strings, gaps and rich text', () => {

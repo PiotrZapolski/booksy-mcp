@@ -18,7 +18,7 @@ function setup(
   const waits: number[] = [];
   const gateway = new Gateway(bridge, {
     traffic,
-    maskContacts: false,
+    redactPii: false,
     now: () => time,
     random: () => 0,
     sleep: async (ms) => {
@@ -348,10 +348,32 @@ describe('safe mode off', () => {
 });
 
 describe('sanitize', () => {
+  it('finds contact fields of payments and contact details inside free text', () => {
+    const masked = sanitize(
+      {
+        buyer_customer_cell_phone: '+48500600700',
+        buyer_customer_email: 'someone@example.com',
+        customerPhone: 500600700,
+        send_email: true,
+        mobile_payment: 'on',
+        hotel: 'Grand',
+        note: 'Call +48 500 600 700 or write to someone@example.com on 2026-11-02',
+      },
+      { redactPii: true },
+    ) as Record<string, unknown>;
+    expect(masked.buyer_customer_cell_phone).toBe('+4***00');
+    expect(masked.buyer_customer_email).toBe('so***om');
+    expect(masked.customerPhone).toBe('50***00');
+    expect(masked.send_email).toBe(true);
+    expect(masked.mobile_payment).toBe('on');
+    expect(masked.hotel).toBe('Grand');
+    expect(masked.note).toBe('Call +4***00 or write to so***om on 2026-11-02');
+  });
+
   it('masks contact data only on request', () => {
     const value = { cell_phone: '+48123456789', email: 'someone@example.com', name: 'A' };
-    expect(sanitize(value, { maskContacts: false })).toEqual(value);
-    const masked = sanitize(value, { maskContacts: true }) as typeof value;
+    expect(sanitize(value, { redactPii: false })).toEqual(value);
+    const masked = sanitize(value, { redactPii: true }) as typeof value;
     expect(masked.cell_phone).toBe('+4***89');
     expect(masked.email).not.toContain('example');
     expect(masked.name).toBe('A');

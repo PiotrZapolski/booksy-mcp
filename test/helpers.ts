@@ -61,7 +61,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     stateDir: join(dir, 'state'),
     traffic: UNRESTRICTED_TRAFFIC,
     maxResultChars: 150_000,
-    maskContacts: false,
+    redactPii: false,
     writeTools: [],
     disabledTools: [],
     ...overrides,
@@ -76,7 +76,7 @@ export function testContext(
   return {
     gateway: new Gateway(bridge, {
       traffic: UNRESTRICTED_TRAFFIC,
-      maskContacts: false,
+      redactPii: false,
       sleep: async () => undefined,
     }),
     config,

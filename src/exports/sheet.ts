@@ -55,6 +55,11 @@ function attribute(attributes: string, name: string): string | undefined {
   return new RegExp(`\\b${name}="([^"]*)"`).exec(attributes)?.[1];
 }
 
+/** Drops binary float noise: 9.630000000000001 becomes 9.63. */
+function tidyNumber(value: string): string {
+  return /^-?\d+\.\d{10,}$/.test(value) ? String(Number(Number(value).toPrecision(12))) : value;
+}
+
 function parseRows(xml: string, shared: string[]): string[][] {
   const rows: string[][] = [];
   for (const rowMatch of xml.matchAll(/<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
@@ -75,7 +80,7 @@ function parseRows(xml: string, shared: string[]): string[][] {
       else if (type === 'b') value = raw === '1' ? 'TRUE' : 'FALSE';
       else if (raw !== undefined) value = decode(raw);
       while (row.length < index) row.push('');
-      row[index] = value;
+      row[index] = tidyNumber(value);
     }
     rows.push(row);
   }
@@ -122,21 +127,82 @@ export function readWorkbook(bytes: Uint8Array): Sheet[] {
   return sheets;
 }
 
-/**
- * Turns rows into records. Exports often start with title lines, so the header is the first row
- * that has as many filled cells as the widest row.
- */
-export function toRecords(rows: string[][]): Array<Record<string, string>> {
-  const filled = (row: string[]): number => row.filter((cell) => cell !== '').length;
-  const widest = rows.slice(0, 30).reduce((max, row) => Math.max(max, filled(row)), 0);
-  const headerIndex = rows.findIndex((row) => filled(row) === widest);
-  if (headerIndex < 0 || widest === 0) return [];
+export interface Table {
+  records: Array<Record<string, string>>;
+  /** The summary row, under the same column names. */
+  totals: Record<string, string> | null;
+  /** Filled rows below the summary, such as small extra tables. */
+  extraRows: string[][];
+}
 
-  const header = (rows[headerIndex] as string[]).map((cell, index) => cell || `column_${index + 1}`);
-  return rows
-    .slice(headerIndex + 1)
-    .filter((row) => filled(row) > 0)
-    .map((row) => Object.fromEntries(header.map((name, index) => [name, row[index] ?? ''])));
+/** Labels of the summary row that closes a report table. */
+const TOTAL_LABEL = /^(razem|suma|łącznie|total|totals|sum|gesamt|summe)\s*:?$/i;
+/** A number, a date or a time: what a data cell holds and a column label does not. */
+const VALUE_LIKE = /^[-+]?\d[\d\s.,:/-]*$/;
+const HEADER_SEARCH_ROWS = 30;
+
+const filledCells = (row: string[]): string[] => row.filter((cell) => cell !== '');
+
+function isTotalRow(row: string[]): boolean {
+  return TOTAL_LABEL.test((filledCells(row)[0] ?? '').trim());
+}
+
+/**
+ * Report sheets open with title lines and a period line, and may number their rows in a column
+ * that has no label. So a data row can be wider than the header. The header is the first row with
+ * at least half the width of the table, mostly labels rather than values. A table with values for
+ * labels, such as one column per month, falls back to the first row of full width.
+ */
+function findHeader(rows: string[][]): number {
+  const top = rows.slice(0, HEADER_SEARCH_ROWS);
+  const widest = top.reduce((max, row) => Math.max(max, filledCells(row).length), 0);
+  if (widest === 0) return -1;
+  const labelled = top.findIndex((row) => {
+    const cells = filledCells(row);
+    const values = cells.filter((cell) => VALUE_LIKE.test(cell.trim())).length;
+    return cells.length >= Math.max(2, widest / 2) && values * 2 < cells.length;
+  });
+  return labelled >= 0 ? labelled : top.findIndex((row) => filledCells(row).length === widest);
+}
+
+/** True for a column without a label that only counts rows: 1, 2, 3. */
+function isCounter(values: string[]): boolean {
+  return values.every((value, index) => value === '' || Number(value) === index + 1);
+}
+
+function columnNames(header: string[], rows: string[][]): Array<[number, string]> {
+  const width = rows.reduce((max, row) => Math.max(max, row.length), header.length);
+  const columns: Array<[number, string]> = [];
+  for (let index = 0; index < width; index += 1) {
+    const label = (header[index] ?? '').trim();
+    const values = rows.map((row) => row[index] ?? '');
+    if (label) columns.push([index, label]);
+    else if (!isCounter(values)) columns.push([index, `column_${index + 1}`]);
+  }
+  return columns;
+}
+
+/** Finds the table on a sheet: its header, its rows up to the summary, and what lies below. */
+export function toTable(rows: string[][]): Table {
+  const headerIndex = findHeader(rows);
+  if (headerIndex < 0) return { records: [], totals: null, extraRows: [] };
+
+  const body = rows.slice(headerIndex + 1);
+  const end = body.findIndex(isTotalRow);
+  const data = (end < 0 ? body : body.slice(0, end)).filter((row) => filledCells(row).length > 0);
+  const columns = columnNames(rows[headerIndex] as string[], data);
+  const record = (row: string[]): Record<string, string> =>
+    Object.fromEntries(columns.map(([index, name]) => [name, row[index] ?? '']));
+
+  return {
+    records: data.map(record),
+    totals: end < 0 ? null : record(body[end] as string[]),
+    extraRows: end < 0 ? [] : body.slice(end + 1).filter((row) => filledCells(row).length > 0),
+  };
+}
+
+export function toRecords(rows: string[][]): Array<Record<string, string>> {
+  return toTable(rows).records;
 }
 
 /** RFC 4180 CSV. Text that a spreadsheet would run as a formula is neutralised. */

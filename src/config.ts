@@ -109,7 +109,8 @@ export interface Config {
   stateDir: string;
   traffic: TrafficPolicy;
   maxResultChars: number;
-  maskContacts: boolean;
+  /** Masks e-mails and phone numbers in everything tools return. */
+  redactPii: boolean;
   /** Write tools named in the configuration, or "all" for every write that does not reach clients. */
   writeTools: string[];
   disabledTools: string[];
@@ -123,6 +124,8 @@ interface FileConfig {
   minIntervalMs?: number;
   maxRequestsPerHour?: number;
   maxResultChars?: number;
+  redactPii?: boolean;
+  /** Former name of redactPii. */
   maskContacts?: boolean;
   writeTools?: string[];
   disabledTools?: string[];
@@ -193,7 +196,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       maxRequestsPerHour: number(env.BOOKSY_MCP_MAX_REQUESTS_PER_HOUR) ?? file.maxRequestsPerHour,
     }),
     maxResultChars: number(env.BOOKSY_MCP_MAX_RESULT_CHARS) ?? file.maxResultChars ?? 150_000,
-    maskContacts: bool(env.BOOKSY_MCP_MASK_CONTACTS) ?? file.maskContacts ?? false,
+    redactPii:
+      bool(env.BOOKSY_MCP_REDACT_PII) ??
+      bool(env.BOOKSY_MCP_MASK_CONTACTS) ??
+      file.redactPii ??
+      file.maskContacts ??
+      false,
     writeTools: list(env.BOOKSY_MCP_WRITE_TOOLS) ?? file.writeTools ?? [],
     disabledTools: list(env.BOOKSY_MCP_DISABLED_TOOLS) ?? file.disabledTools ?? [],
   };

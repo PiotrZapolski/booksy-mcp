@@ -9,6 +9,38 @@ export interface Visit {
   staffIds: string[];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The calendar answer keys bookings and reservations by id. Accepts a plain list as well. */
+export function recordList(value: unknown): RawBooking[] {
+  if (Array.isArray(value)) return value.filter(isRecord);
+  if (!isRecord(value)) return [];
+  return Object.entries(value).flatMap(([id, item]) => (isRecord(item) ? [{ id, ...item }] : []));
+}
+
+/** Reservations block time like bookings do, under other field names. */
+export function reservationsAsBookings(reservations: RawBooking[]): RawBooking[] {
+  return reservations.map((reservation) => ({
+    ...reservation,
+    booked_from: reservation.reserved_from ?? reservation.booked_from,
+    booked_till: reservation.reserved_till ?? reservation.booked_till,
+  }));
+}
+
+/** Time off in a calendar answer: per resource and date, or a flat list in the month view. */
+export function calendarTimeOffs(resources: unknown): unknown[] {
+  if (isRecord(resources)) return Array.isArray(resources.time_offs) ? resources.time_offs : [];
+  if (!Array.isArray(resources)) return [];
+  return resources.filter(isRecord).flatMap((resource) => {
+    if (!isRecord(resource.time_offs)) return [];
+    return Object.entries(resource.time_offs).flatMap(([date, entries]) =>
+      recordList(entries).map((entry) => ({ resource_id: resource.id, date, ...entry })),
+    );
+  });
+}
+
 function text(value: unknown): string | null {
   if (typeof value === 'string' && value.length > 0) return value;
   if (typeof value === 'number') return String(value);
@@ -33,6 +65,11 @@ function staffIds(booking: RawBooking): string[] {
   return [...ids];
 }
 
+function statusOf(booking: RawBooking): string | null {
+  const meta = booking.$meta as RawBooking | undefined;
+  return text(booking.status) ?? text(booking.appointment_status) ?? text(meta?.status);
+}
+
 function subbookings(booking: RawBooking): RawBooking[] {
   return Array.isArray(booking.subbookings) && booking.subbookings.length > 0
     ? (booking.subbookings as RawBooking[])
@@ -53,7 +90,7 @@ export function toVisits(bookings: RawBooking[]): Visit[] {
       if (!known) {
         visits.set(uid, {
           uid,
-          status: text(booking.status) ?? text(booking.appointment_status),
+          status: statusOf(booking),
           start,
           end,
           staffIds: staffIds(part),

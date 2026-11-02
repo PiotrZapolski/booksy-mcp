@@ -63,7 +63,7 @@ export function createServer(
 ): { server: McpServer; gateway: Gateway; tools: ToolDef[] } {
   const gateway = new Gateway(bridge, {
     traffic: config.traffic,
-    maskContacts: config.maskContacts,
+    redactPii: config.redactPii,
     ledgerPath: ledgerPath(config),
   });
   const confirmations = new Confirmations();

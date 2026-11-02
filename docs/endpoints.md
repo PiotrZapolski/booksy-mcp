@@ -26,6 +26,17 @@ Booksy can change any of this at any time. This is not an official API.
 Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 `/business_api/me/stats/businesses/:businessId`.
 
+## Response shapes the tools depend on
+
+Read from the panel's code, build `dff44bb1`, 2026-11-02.
+
+- `{B}/calendar`: `bookings` and `reservations` are objects keyed by id, not lists. `resources` is a
+  list, each entry with `id` and `time_offs`, `working_hours`, `bookings`, `reservations` keyed by
+  date. Reservations use `reserved_from` and `reserved_till`.
+- `{B}/monthly_bookings`: `resources.time_offs` is a list, `business.time_off` holds salon closures.
+- `{B}/shifts`: `schedule.resources` is a list of `{ resource: { id, name, type }, schedule: [...] }`
+  plus week and month totals. Each day has `date`, `hours`, `working_hours`, `time_offs`.
+
 ## How the panel talks to the API
 
 - The panel is a Vue application under `booksy.com/pro`.

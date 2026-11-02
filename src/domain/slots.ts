@@ -26,6 +26,33 @@ export interface OpenSlot {
   starts: string[];
 }
 
+/** Totals that only hold for one week, so they are dropped once several weeks are joined. */
+const WEEK_TOTALS = ['week_work_duration', 'week_scheduled_duration'];
+
+/** The shifts answer keeps id and name under `resource`, next to `schedule`. */
+export function flattenResource(raw: unknown): ScheduleResource {
+  const { resource, ...rest } = (raw ?? {}) as ScheduleResource & { resource?: object };
+  return { ...resource, ...rest };
+}
+
+/** One entry per resource, with the days of all weeks. An entry without id or name stays apart. */
+export function joinResourceWeeks(weeks: ScheduleResource[][]): ScheduleResource[] {
+  const joined = new Map<string, ScheduleResource>();
+  weeks.forEach((week, weekIndex) => {
+    week.forEach((resource, index) => {
+      const key = String(resource.id ?? resource.name ?? `${weekIndex}-${index}`);
+      const known = joined.get(key);
+      if (!known) {
+        joined.set(key, { ...resource, schedule: [...(resource.schedule ?? [])] });
+        return;
+      }
+      known.schedule = [...(known.schedule ?? []), ...(resource.schedule ?? [])];
+      for (const total of WEEK_TOTALS) delete (known as Record<string, unknown>)[total];
+    });
+  });
+  return [...joined.values()];
+}
+
 function minutes(value: string | undefined): number | null {
   const match = value ? /^(\d{2}):(\d{2})/.exec(value) : null;
   return match ? Number(match[1]) * 60 + Number(match[2]) : null;

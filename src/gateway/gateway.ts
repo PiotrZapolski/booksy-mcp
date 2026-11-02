@@ -48,7 +48,7 @@ export interface BinaryResponse {
 
 export interface GatewayOptions {
   traffic: TrafficPolicy;
-  maskContacts: boolean;
+  redactPii: boolean;
   /** File for budgets and cooldowns. Without it they last as long as this process. */
   ledgerPath?: string;
   now?: () => number;
@@ -161,7 +161,7 @@ export class Gateway {
     }
 
     const result = await this.send(rule, options);
-    const data = sanitize(result.data, { maskContacts: this.options.maskContacts });
+    const data = sanitize(result.data, { redactPii: this.options.redactPii });
     if (cacheable) {
       const seconds = (rule.cacheSeconds ?? DEFAULT_CACHE_SECONDS) * this.traffic.cacheMultiplier;
       this.cache.set(key, data, seconds);
@@ -192,7 +192,7 @@ export class Gateway {
     );
     this.remember(result.context);
     if (!result.ok) throw this.toError(result);
-    return sanitize(result.data, { maskContacts: this.options.maskContacts });
+    return sanitize(result.data, { redactPii: this.options.redactPii });
   }
 
   /** Addresses the report frame has asked for by itself. Sends nothing to Booksy. */
@@ -315,7 +315,7 @@ export class Gateway {
     if (known) return known;
 
     const status = result.status ?? 0;
-    const body = sanitize(result.data, { maskContacts: this.options.maskContacts });
+    const body = sanitize(result.data, { redactPii: this.options.redactPii });
     const text = JSON.stringify(result.data ?? '').toLowerCase();
 
     if (status === 401) return FAILURE_MESSAGES.not_logged_in as BooksyError;

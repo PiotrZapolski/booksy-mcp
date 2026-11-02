@@ -2,7 +2,8 @@ import { writeFileSync } from 'node:fs';
 import { z } from 'zod';
 import { BooksyError } from '../errors.js';
 import { extensionFor, saveFile } from '../exports/files.js';
-import { readWorkbook, type Sheet, toCsv, toRecords } from '../exports/sheet.js';
+import { readWorkbook, type Sheet, toCsv, toTable } from '../exports/sheet.js';
+import { sanitize } from '../gateway/sanitize.js';
 import { readTool, schema, type Args, type ToolContext, type ToolDef } from './define.js';
 
 /** Period values the panel's report screens send. */
@@ -240,14 +241,20 @@ async function exportOne(context: ToolContext, options: ExportOptions): Promise<
     return result;
   }
 
-  result.sheets = sheets.map((sheet) => {
-    const records = toRecords(sheet.rows);
-    return {
-      name: sheet.name,
-      total_rows: records.length,
-      rows: records.slice(0, options.maxRows),
-    };
-  });
+  // Downloads skip the gateway's JSON sanitizer, so rows are masked here.
+  result.sheets = sanitize(
+    sheets.map((sheet) => {
+      const table = toTable(sheet.rows);
+      return {
+        name: sheet.name,
+        total_rows: table.records.length,
+        rows: table.records.slice(0, options.maxRows),
+        totals: table.totals,
+        ...(table.extraRows.length > 0 ? { rows_below_totals: table.extraRows } : {}),
+      };
+    }),
+    { redactPii: context.config.redactPii },
+  );
   return result;
 }
 
