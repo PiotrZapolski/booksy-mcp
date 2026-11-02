@@ -26,10 +26,13 @@ export async function readCalendar(
   to: string,
   fresh = false,
 ): Promise<{ bookings: RawBooking[]; windows: number; timeOffs: unknown[] }> {
-  const windows = splitRange(from, to);
+  context.gateway.assertRange(from, to);
+  const windows = splitRange(from, to, context.gateway.traffic.windowDays);
   const batches: RawBooking[][] = [];
   const timeOffs: unknown[] = [];
+  let pause = false;
   for (const window of windows) {
+    if (pause) await context.gateway.pause();
     const response = await context.gateway.request('calendar.range', {
       params: {
         start_date: window.start,
@@ -40,6 +43,7 @@ export async function readCalendar(
       },
       fresh,
     });
+    pause = !response.fromCache;
     const payload = response.data as CalendarPayload;
     batches.push(payload.bookings ?? []);
     const resources = payload.resources as { time_offs?: unknown[] } | undefined;
@@ -54,15 +58,19 @@ export async function readShifts(
   to: string,
   fresh = false,
 ): Promise<{ business: unknown[]; resources: ScheduleResource[]; reasons: unknown }> {
+  context.gateway.assertRange(from, to);
   const business: Array<{ date?: string }> = [];
   const resources = new Map<string, ScheduleResource>();
   let reasons: unknown = null;
 
+  let pause = false;
   for (const week of weekStarts(from, to)) {
+    if (pause) await context.gateway.pause();
     const response = await context.gateway.request('shifts.week', {
       params: { week_start_date: week },
       fresh,
     });
+    pause = !response.fromCache;
     const schedule = (response.data as ShiftsPayload).schedule;
     business.push(...(schedule?.business?.schedule ?? []));
     reasons = schedule?.time_off_reasons ?? reasons;
@@ -91,16 +99,20 @@ const session: ToolDef = {
   title: 'Session status',
   description:
     'Shows whether the extension is connected, the pairing code when pairing is needed, the salon ' +
-    'open in the panel, enabled write tools and the request budget. Start here.',
+    'open in the panel, enabled write tools, the traffic mode, budget use and any cooldown. Start here.',
   input: {},
   write: false,
   async handler(_args, context) {
     const bridge = context.bridgeStatus();
-    const base = {
-      bridge,
-      traffic: context.gateway.status(),
-      write_tools: context.config.writeTools,
-    };
+    const traffic = context.gateway.status();
+    const base = { bridge, traffic, write_tools: context.config.writeTools };
+    const stopped = traffic.cooldown.active
+      ? {
+          next:
+            `All requests are stopped until ${traffic.cooldown.until} after ` +
+            `${traffic.cooldown.reason}. Tell the user, and do not work around it.`,
+        }
+      : {};
     if (bridge.portBusy) {
       return {
         ...base,
@@ -116,7 +128,7 @@ const session: ToolDef = {
       };
     }
     try {
-      return { ...base, panel: await context.gateway.context(true) };
+      return { ...base, panel: await context.gateway.context(true), ...stopped };
     } catch (error) {
       if (error instanceof BooksyError) return { ...base, panel: null, next: error.message };
       throw error;
@@ -128,8 +140,8 @@ const calendarAgenda: ToolDef = {
   name: 'calendar_agenda',
   title: 'Calendar agenda',
   description:
-    'Appointments between two dates. Any length: long ranges are split into windows of 31 days and ' +
-    'read one after another. Filter by staff or by status (A accepted, W waiting for confirmation, ' +
+    'Appointments between two dates. Long ranges are split into windows and read one after another ' +
+    'with a pause. In safe mode a range can have at most 92 days. Filter by staff or by status (A accepted, W waiting for confirmation, ' +
     'C canceled, D declined, F finished, N no-show, M modified, O prepayment awaiting, P proposed, ' +
     'R rejected, V unverified).',
   input: {
@@ -278,8 +290,8 @@ const shifts: ToolDef = {
   name: 'staff_schedule',
   title: 'Staff schedule',
   description:
-    'Working hours and time off per staff member and day, to the minute, for any date range. Reads ' +
-    'one week at a time.',
+    'Working hours and time off per staff member and day, to the minute, for a date range. Reads ' +
+    'one week at a time, with a pause between weeks.',
   input: { from: schema.date('First day'), to: schema.date('Last day'), fresh: schema.fresh },
   write: false,
   async handler(args, context) {

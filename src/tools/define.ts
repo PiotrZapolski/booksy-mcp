@@ -77,6 +77,8 @@ export interface SimpleRead {
   /** Fixed query values. */
   fixed?: Record<string, string | number | boolean>;
   map?(args: Args): Record<string, string | number | boolean | undefined>;
+  /** Runs first and throws to refuse the call before anything is sent. */
+  check?(args: Args, context: ToolContext): void;
 }
 
 /** A read tool that maps onto exactly one allowed endpoint. */
@@ -89,6 +91,7 @@ export function readTool(definition: SimpleRead): ToolDef {
     input: { ...definition.input, fresh: schema.fresh },
     write: false,
     async handler(args, context) {
+      definition.check?.(args, context);
       const urlParams: Record<string, string> = {};
       for (const name of definition.path ?? []) urlParams[name] = String(args[name]);
       const options: RequestOptions = {

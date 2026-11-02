@@ -3,8 +3,10 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { readWorkbook } from '../src/exports/sheet.js';
+import { SAFE_TRAFFIC, type TrafficPolicy } from '../src/config.js';
 import { BooksyError } from '../src/errors.js';
 import { createServer, toToolResult } from '../src/server.js';
+import { Gateway } from '../src/gateway/gateway.js';
 import { ALL_TOOLS, selectTools } from '../src/tools/index.js';
 import type { BridgeCall } from '../src/bridge/server.js';
 import { FakeBridge, testConfig, testContext } from './helpers.js';
@@ -474,7 +476,7 @@ describe('stats_report_catalog', () => {
   it('collects keys from the sections and notes the ones the plan lacks', async () => {
     const bridge = new FakeBridge((call) => {
       const dashboard = (call as unknown as { request: { params: { dashboard: string } } }).request.params.dashboard;
-      if (dashboard === 'inventory') return { ok: false, status: 403, data: {} };
+      if (dashboard === 'inventory') return { ok: false, status: 404, data: {} };
       return { ok: true, data: { reports: [{ key: `${dashboard}_list`, title: 'T' }] } };
     });
     const result = (await tool('stats_report_catalog').handler(
@@ -483,6 +485,21 @@ describe('stats_report_catalog', () => {
     )) as { count: number; unavailable: Array<{ dashboard: string }> };
     expect(result.count).toBe(7);
     expect(result.unavailable.map((u) => u.dashboard)).toEqual(['inventory']);
+  });
+
+  it('a 403 ends the reading and keeps what was found', async () => {
+    const bridge = new FakeBridge((call) => {
+      const dashboard = (call as unknown as { request: { params: { dashboard: string } } }).request.params.dashboard;
+      if (dashboard === 'clients') return { ok: false, status: 403, data: {} };
+      return { ok: true, data: { reports: [{ key: `${dashboard}_list`, title: 'T' }] } };
+    });
+    const result = (await tool('stats_report_catalog').handler(
+      { date_from: '2026-10-01', date_till: '2026-10-31', time_span: 'month' },
+      testContext(bridge),
+    )) as { count: number; stopped_early: string };
+    expect(result.count).toBe(1);
+    expect(result.stopped_early).toContain('403');
+    expect(bridge.sent()).toHaveLength(2);
   });
 });
 
@@ -501,6 +518,186 @@ describe('session_status', () => {
       panel: { businessName: string };
     };
     expect(result.panel.businessName).toBe('Sample Barbers');
+  });
+});
+
+describe('session_status traffic', () => {
+  it('shows the mode, the use of budgets and a cooldown', async () => {
+    const bridge = new FakeBridge(() => ({ ok: false, status: 429 }));
+    const gateway = new Gateway(bridge, {
+      traffic: SAFE_TRAFFIC,
+      maskContacts: false,
+      sleep: async () => undefined,
+    });
+    await expect(gateway.request('reviews.list')).rejects.toBeTruthy();
+    const context = testContext(bridge, { gateway });
+    const result = (await tool('session_status').handler({}, context)) as {
+      traffic: { mode: string; requests_this_hour: { used: number }; cooldown: { active: boolean } };
+      next: string;
+    };
+    expect(result.traffic).toMatchObject({
+      mode: 'safe',
+      requests_this_hour: { used: 1 },
+      cooldown: { active: true },
+    });
+    expect(result.next).toContain('do not work around it');
+  });
+});
+
+describe('safe mode in tools', () => {
+  function safeContext(bridge: FakeBridge, traffic: Partial<TrafficPolicy> = {}) {
+    const pauses: number[] = [];
+    const gateway = new Gateway(bridge, {
+      traffic: { ...SAFE_TRAFFIC, minIntervalMs: 0, ...traffic },
+      maskContacts: false,
+      random: () => 0,
+      sleep: async (ms) => {
+        pauses.push(ms);
+      },
+    });
+    return { context: testContext(bridge, { gateway }), pauses };
+  }
+
+  it('reads a calendar range in short windows with pauses', async () => {
+    const bridge = new FakeBridge(() => ({ ok: true, data: { bookings: [] } }));
+    const { context, pauses } = safeContext(bridge);
+    const result = (await tool('calendar_agenda').handler(
+      { from: '2026-11-01', to: '2026-11-30' },
+      context,
+    )) as { windows_read: number };
+    expect(result.windows_read).toBe(3);
+    expect(bridge.sent()).toHaveLength(3);
+    expect(pauses).toEqual([SAFE_TRAFFIC.windowPauseMs, SAFE_TRAFFIC.windowPauseMs]);
+  });
+
+  it('refuses a range over the limit without sending anything', async () => {
+    const bridge = new FakeBridge();
+    const { context } = safeContext(bridge);
+    await expect(
+      tool('calendar_agenda').handler({ from: '2026-01-01', to: '2026-12-31' }, context),
+    ).rejects.toMatchObject({ code: 'safe_mode_limit' });
+    await expect(
+      tool('staff_schedule').handler({ from: '2026-01-01', to: '2026-12-31' }, context),
+    ).rejects.toMatchObject({ code: 'safe_mode_limit' });
+    expect(bridge.sent()).toHaveLength(0);
+  });
+
+  it.each(['stats_report', 'stats_overview', 'stats_dashboard', 'stats_report_catalog', 'report_export'])(
+    '%s refuses a report period over the limit',
+    async (name) => {
+      const bridge = new FakeBridge();
+      const { context } = safeContext(bridge);
+      await expect(
+        tool(name).handler(
+          {
+            report_key: 'a',
+            dashboard: 'staff',
+            date_from: '2024-01-01',
+            date_till: '2026-01-01',
+            time_span: 'between',
+            output: 'file',
+          },
+          context,
+        ),
+      ).rejects.toMatchObject({ code: 'safe_mode_limit' });
+      expect(bridge.sent()).toHaveLength(0);
+    },
+  );
+
+  it('refuses a batch that is too big', async () => {
+    const bridge = new FakeBridge();
+    const { context } = safeContext(bridge);
+    await expect(
+      tool('report_export_batch').handler(
+        {
+          report_keys: ['a', 'b', 'c', 'd', 'e', 'f'],
+          date_from: '2026-10-01',
+          date_till: '2026-10-31',
+          time_span: 'month',
+          output: 'file',
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'safe_mode_limit' });
+    expect(bridge.sent()).toHaveLength(0);
+  });
+
+  it('a batch stopped by a limit still lists what it saved', async () => {
+    const bridge = new FakeBridge(() => ({ ok: true, base64: 'AQID', contentType: 'text/csv' }));
+    const { context } = safeContext(bridge, { maxExportsPerDay: 1 });
+    const result = (await tool('report_export_batch').handler(
+      {
+        report_keys: ['a', 'b'],
+        date_from: '2026-10-01',
+        date_till: '2026-10-31',
+        time_span: 'month',
+        output: 'file',
+      },
+      context,
+    )) as { results: unknown[]; stopped_early: string };
+    expect(result.results).toHaveLength(1);
+    expect(result.stopped_early).toMatch(/report exports/);
+  });
+});
+
+describe('parameters seen in the live panel', () => {
+  it('calendar_month names every resource, like the panel', async () => {
+    const bridge = new FakeBridge(() => ({ ok: true, data: { resources: [{ id: 7 }, { id: 8 }] } }));
+    await tool('calendar_month').handler(
+      { start_date: '2026-11-01', end_date: '2026-11-30' },
+      testContext(bridge),
+    );
+    expect(bridge.sent()[1]).toMatchObject({
+      request: {
+        ruleId: 'calendar.month',
+        params: {
+          start_date: '2026-11-01',
+          end_date: '2026-11-30',
+          include_unconfirmed: true,
+          version: 3,
+          resources_per_page: 100,
+          resource_id: ['7', '8'],
+        },
+      },
+    });
+  });
+
+  it('calendar_month takes a chosen resource without reading the list', async () => {
+    const bridge = new FakeBridge();
+    await tool('calendar_month').handler(
+      { start_date: '2026-11-01', end_date: '2026-11-30', resource_ids: ['7'] },
+      testContext(bridge),
+    );
+    expect(bridge.sent()).toHaveLength(1);
+    expect(bridge.sent()[0]).toMatchObject({ request: { params: { resource_id: ['7'] } } });
+  });
+
+  it('customer_visit_history sends the panel spelling', async () => {
+    const bridge = new FakeBridge();
+    await tool('customer_visit_history').handler(
+      { customerId: '5', page: 1, per_page: 20, state: 'finished', include_extra_bookings: true },
+      testContext(bridge),
+    );
+    expect(bridge.sent()[0]).toMatchObject({
+      request: {
+        ruleId: 'customers.bookings',
+        params: { page: 1, per_page: 20, state: 'finished', inlcude_extra_bookings: true },
+      },
+    });
+  });
+});
+
+describe('stats_frame_requests', () => {
+  it('returns what the frame asked for and sends nothing to Booksy', async () => {
+    const frames = [{ host: 'stats-and-reports.booksy.com', requests: [] }];
+    const bridge = new FakeBridge(() => ({ ok: true, data: frames }));
+    const context = testContext(bridge);
+    const result = (await tool('stats_frame_requests').handler({}, context)) as {
+      frames: unknown[];
+    };
+    expect(result.frames).toEqual(frames);
+    expect(bridge.calls.map((call) => call.type)).toEqual(['frames']);
+    expect(context.gateway.status().requests_this_hour.used).toBe(0);
   });
 });
 

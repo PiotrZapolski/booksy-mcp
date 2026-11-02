@@ -11,6 +11,8 @@ export interface PanelRequest {
   data?: unknown;
   binary?: boolean;
   timeoutMs?: number;
+  /** Refuse the call when the panel tab or the computer has been unused for longer than this. */
+  maxBackgroundMs?: number;
 }
 
 export type QueryValue = string | number | boolean | Array<string | number>;
@@ -34,6 +36,7 @@ export type PanelFailure =
   | 'tab_discarded'
   | 'rule_rejected'
   | 'writes_disabled_in_extension'
+  | 'panel_in_background'
   | 'chat_failed';
 
 export interface PanelResult {
@@ -56,6 +59,13 @@ export type ChatAction =
 export interface ChatRequest {
   chat: ChatAction;
   timeoutMs?: number;
+  maxBackgroundMs?: number;
+}
+
+/** What a frame asked for by itself: address shapes only, no ids, no parameter values, no headers. */
+export interface FrameRequests {
+  host: string;
+  requests: Array<{ path: string; params: string[]; count: number; status: number | null }>;
 }
 
 /** Extension to server. */
@@ -74,6 +84,7 @@ export type ServerMessage =
   | { type: 'call'; id: string; request: PanelRequest }
   | { type: 'chat'; id: string; request: ChatRequest }
   | { type: 'context'; id: string }
+  | { type: 'frames'; id: string }
   | { type: 'pong' };
 
 export const PROOF_CLIENT = 'booksy-mcp/client';

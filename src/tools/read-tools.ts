@@ -8,6 +8,45 @@ const dates = {
   date_till: schema.date('Last day'),
 };
 
+/** The panel names every resource in this request, so without a choice all of them are read. */
+const calendarMonth: ToolDef = {
+  name: 'calendar_month',
+  title: 'Calendar month view',
+  description: 'Counters and bookings for a month view of the calendar.',
+  input: {
+    start_date: schema.date('First day of the month'),
+    end_date: schema.date('Last day of the month'),
+    resource_ids: z
+      .array(schema.id('Resource id'))
+      .max(100)
+      .optional()
+      .describe('Only these staff members or stations. All of them when left out'),
+    fresh: schema.fresh,
+  },
+  write: false,
+  async handler(args, context) {
+    const fresh = args.fresh === true;
+    let ids = args.resource_ids as string[] | undefined;
+    if (!ids) {
+      const team = await context.gateway.request('resources.list', { fresh });
+      const list = (team.data as { resources?: Array<{ id?: string | number }> }).resources ?? [];
+      ids = list.flatMap((resource) => (resource.id === undefined ? [] : [String(resource.id)]));
+    }
+    const response = await context.gateway.request('calendar.month', {
+      params: {
+        start_date: args.start_date as string,
+        end_date: args.end_date as string,
+        include_unconfirmed: true,
+        version: 3,
+        resources_per_page: 100,
+        ...(ids.length > 0 ? { resource_id: ids } : {}),
+      },
+      fresh,
+    });
+    return { business_id: response.businessId, from_cache: response.fromCache, data: response.data };
+  },
+};
+
 /** Tools that map one to one onto an allowed endpoint. */
 export const READ_TOOLS: ToolDef[] = [
   // Business
@@ -73,18 +112,7 @@ export const READ_TOOLS: ToolDef[] = [
   }),
 
   // Calendar
-  readTool({
-    name: 'calendar_month',
-    title: 'Calendar month view',
-    description: 'Counters and bookings for a month view of the calendar.',
-    rule: 'calendar.month',
-    input: {
-      start_date: schema.date('First day of the month'),
-      end_date: schema.date('Last day of the month'),
-    },
-    fixed: { include_unconfirmed: true, version: 3 },
-    query: ['start_date', 'end_date'],
-  }),
+  calendarMonth,
   readTool({
     name: 'calendar_changed_dates',
     title: 'Dates changed since',
@@ -184,9 +212,16 @@ export const READ_TOOLS: ToolDef[] = [
     title: 'Client visit history',
     description: 'Past and future appointments of one client.',
     rule: 'customers.bookings',
-    input: { customerId: schema.id('Client id'), ...paging },
+    input: {
+      customerId: schema.id('Client id'),
+      ...paging,
+      state: z.string().max(30).optional().describe('Only visits in this state'),
+      include_extra_bookings: z.boolean().optional().describe('Also visits outside the main list'),
+    },
     path: ['customerId'],
-    query: paged,
+    query: [...paged, 'state'],
+    // The panel really does send this name, with the letters swapped.
+    map: (args) => ({ inlcude_extra_bookings: args.include_extra_bookings as boolean | undefined }),
   }),
   readTool({
     name: 'customer_product_history',

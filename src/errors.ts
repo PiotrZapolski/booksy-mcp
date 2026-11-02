@@ -9,6 +9,8 @@ export type ErrorCode =
   | 'captcha_protected'
   | 'blocked_by_booksy'
   | 'budget_exhausted'
+  | 'safe_mode_limit'
+  | 'panel_in_background'
   | 'booksy_error'
   | 'request_failed'
   | 'rule_rejected'

@@ -15,10 +15,15 @@ export const SERVER_VERSION = '0.1.0';
 
 const INSTRUCTIONS =
   'Reads a Booksy Biz panel through the user\'s own logged-in browser tab. Start with ' +
-  'session_status. Requests are slow on purpose: they run one at a time with a gap. Prefer one ' +
+  'session_status. Requests are slow on purpose: they run one at a time with a gap, and safe mode ' +
+  'adds budgets. Never work around a stop or a cooldown. Prefer one ' +
   'precise call over several broad ones. Client data is personal data: use only what the task ' +
   'needs. Write tools need a dry run and then a confirmation from the user. Never call mode=confirm ' +
   'without showing the dry run to the user first.';
+
+export function ledgerPath(config: Pick<Config, 'stateDir'>): string {
+  return join(config.stateDir, 'traffic.json');
+}
 
 export function toToolResult(value: unknown, config: Config, now: Date): CallToolResult {
   const text = JSON.stringify(value, null, 2) ?? 'null';
@@ -57,9 +62,9 @@ export function createServer(
   config: Config,
 ): { server: McpServer; gateway: Gateway; tools: ToolDef[] } {
   const gateway = new Gateway(bridge, {
-    minIntervalMs: config.minIntervalMs,
-    maxRequestsPerHour: config.maxRequestsPerHour,
+    traffic: config.traffic,
     maskContacts: config.maskContacts,
+    ledgerPath: ledgerPath(config),
   });
   const confirmations = new Confirmations();
   const snapshots = new SnapshotStore(join(config.stateDir));
@@ -110,7 +115,8 @@ export function createServer(
       },
       async (args: Record<string, unknown>): Promise<CallToolResult> => {
         try {
-          return toToolResult(await tool.handler(args, context), config, context.now());
+          const value = await gateway.scope(() => tool.handler(args, context));
+          return toToolResult(value, config, context.now());
         } catch (error) {
           return toErrorResult(error);
         }

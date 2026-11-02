@@ -8,6 +8,7 @@
  */
 import type {
   ChatAction,
+  FrameRequests,
   PanelContext,
   PanelRequest,
   PanelResult,
@@ -62,6 +63,36 @@ export function pageContext(): PanelResult {
     accessLevel: user.access_level ?? null,
   };
   return { ok: true, context };
+}
+
+/**
+ * Runs in the isolated world of the report frame. Reads the browser's own list of finished requests
+ * and keeps the address shape only: ids become ":id", query values are dropped. Sends nothing.
+ */
+export function pageFrameRequests(): FrameRequests | null {
+  if (location.hostname !== 'stats-and-reports.booksy.com') return null;
+  const seen = new Map<string, FrameRequests['requests'][number]>();
+  for (const item of performance.getEntriesByType('resource')) {
+    const entry = item as PerformanceResourceTiming;
+    if (entry.initiatorType !== 'xmlhttprequest' && entry.initiatorType !== 'fetch') continue;
+    const url = new URL(entry.name);
+    if (!url.hostname.endsWith('booksy.com')) continue;
+    const path = url.pathname
+      .split('/')
+      .map((part) => (/^(\d{3,}|[0-9a-f-]{16,})$/i.test(part) ? ':id' : part))
+      .join('/');
+    const params = [...new Set(url.searchParams.keys())].sort();
+    const key = `${url.hostname}${path}?${params.join(',')}`;
+    const known = seen.get(key);
+    const status = entry.responseStatus ? entry.responseStatus : null;
+    if (known) {
+      known.count += 1;
+      known.status = status ?? known.status;
+    } else {
+      seen.set(key, { path: `${url.hostname}${path}`, params, count: 1, status });
+    }
+  }
+  return { host: location.hostname, requests: [...seen.values()] };
 }
 
 export async function pageCall(call: PageCall): Promise<PanelResult> {

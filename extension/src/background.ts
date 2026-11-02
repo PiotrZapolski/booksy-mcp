@@ -14,7 +14,8 @@ import {
   type ServerMessage,
 } from '../../src/shared/protocol.js';
 import { hmacHex, randomHex } from './crypto.js';
-import { pageCall, pageChat, pageContext } from './page.js';
+import { unattended } from './guard.js';
+import { pageCall, pageChat, pageContext, pageFrameRequests } from './page.js';
 
 const DEFAULT_PORT = 47821;
 const PANEL_URL = 'https://booksy.com/pro/*';
@@ -113,6 +114,7 @@ async function connect(): Promise<void> {
     if (message.type === 'call') return reply(ws, message.id, handleCall(message.request));
     if (message.type === 'chat') return reply(ws, message.id, handleChat(message.request));
     if (message.type === 'context') return reply(ws, message.id, handleContext());
+    if (message.type === 'frames') return reply(ws, message.id, handleFrames());
   };
 
   ws.onopen = () => {
@@ -155,13 +157,35 @@ function isFailure(value: chrome.tabs.Tab | PanelResult): value is PanelResult {
   return 'ok' in value;
 }
 
+async function isUnattended(tab: chrome.tabs.Tab, maxBackgroundMs: number): Promise<boolean> {
+  const seconds = Math.max(15, Math.ceil(maxBackgroundMs / 1000));
+  const [window, computer] = await Promise.all([
+    chrome.windows.get(tab.windowId),
+    chrome.idle.queryState(seconds),
+  ]);
+  return unattended(
+    {
+      active: tab.active,
+      minimized: window.state === 'minimized',
+      lastAccessed: tab.lastAccessed,
+      computer,
+      now: Date.now(),
+    },
+    maxBackgroundMs,
+  );
+}
+
 async function runInTab<A extends unknown[]>(
   func: (...args: A) => PanelResult | Promise<PanelResult>,
   args: A,
+  maxBackgroundMs?: number,
 ): Promise<PanelResult> {
   const tab = await panelTab();
   if (isFailure(tab)) return tab;
   if (tab.id === undefined) return { ok: false, failure: 'tab_missing' };
+  if (maxBackgroundMs !== undefined && (await isUnattended(tab, maxBackgroundMs))) {
+    return { ok: false, failure: 'panel_in_background' };
+  }
   const [frame] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     world: 'MAIN',
@@ -186,7 +210,8 @@ async function handleCall(request: PanelRequest): Promise<PanelResult> {
     const { allowWrites } = await loadSettings();
     if (!allowWrites) return { ok: false, failure: 'writes_disabled_in_extension' };
   }
-  return runInTab(pageCall, [{ method: rule.method, path: rule.path, request }]);
+  const call = { method: rule.method, path: rule.path, request };
+  return runInTab(pageCall, [call], request.maxBackgroundMs);
 }
 
 async function handleChat(request: ChatRequest): Promise<PanelResult> {
@@ -194,7 +219,23 @@ async function handleChat(request: ChatRequest): Promise<PanelResult> {
     const { allowWrites } = await loadSettings();
     if (!allowWrites) return { ok: false, failure: 'writes_disabled_in_extension' };
   }
-  return runInTab(pageChat, [request.chat, CHAT_BASE]);
+  return runInTab(pageChat, [request.chat, CHAT_BASE], request.maxBackgroundMs);
+}
+
+/**
+ * Looks into the report frame, in the extension's isolated world, so this code cannot reach the
+ * frame's scripts or its stores. Frames on other hosts are skipped by Chrome, because the extension
+ * has no permission for them. That includes the gateway frame that keeps the session.
+ */
+async function handleFrames(): Promise<PanelResult> {
+  const tab = await panelTab();
+  if (isFailure(tab)) return tab;
+  if (tab.id === undefined) return { ok: false, failure: 'tab_missing' };
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: tab.id, allFrames: true },
+    func: pageFrameRequests,
+  });
+  return { ok: true, data: results.flatMap((entry) => entry.result ?? []) };
 }
 
 chrome.runtime.onInstalled.addListener(() => {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { pageCall, pageChat, pageContext } from '../extension/src/page.js';
+import { unattended } from '../extension/src/guard.js';
+import { pageCall, pageChat, pageContext, pageFrameRequests } from '../extension/src/page.js';
 import { hmacHex } from '../extension/src/crypto.js';
 import { proof } from '../src/bridge/pairing.js';
 
@@ -115,11 +116,72 @@ describe('pageCall', () => {
   });
 
   it('survives Chrome serialising the function', () => {
-    for (const fn of [pageCall, pageContext, pageChat]) {
+    for (const fn of [pageCall, pageContext, pageChat, pageFrameRequests]) {
       const source = fn.toString();
       expect(source).not.toMatch(/__vite|require\(|import\(/);
       expect(() => new Function(`return (${source})`)).not.toThrow();
     }
+  });
+});
+
+describe('pageFrameRequests', () => {
+  const entries = [
+    {
+      name: 'https://pl.booksy.com/api/pl/2/business_api/me/stats/businesses/1001000/dashboard?date_from=2026-11-01&dashboard=staff',
+      initiatorType: 'xmlhttprequest',
+      responseStatus: 200,
+    },
+    {
+      name: 'https://pl.booksy.com/api/pl/2/business_api/me/stats/businesses/1001000/dashboard?date_from=2026-10-01&dashboard=tips',
+      initiatorType: 'xmlhttprequest',
+      responseStatus: 0,
+    },
+    { name: 'https://stats-and-reports.booksy.com/assets/a.js', initiatorType: 'script' },
+    { name: 'https://example.com/track', initiatorType: 'fetch' },
+  ];
+
+  it('keeps address shapes, without ids or values', () => {
+    vi.stubGlobal('location', { hostname: 'stats-and-reports.booksy.com' });
+    vi.stubGlobal('performance', { getEntriesByType: () => entries });
+    const result = pageFrameRequests();
+    expect(result?.requests).toEqual([
+      {
+        path: 'pl.booksy.com/api/pl/2/business_api/me/stats/businesses/:id/dashboard',
+        params: ['dashboard', 'date_from'],
+        count: 2,
+        status: 200,
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toMatch(/1001000|2026|tips/);
+  });
+
+  it('answers only in the report frame', () => {
+    vi.stubGlobal('location', { hostname: 'booksy.com' });
+    expect(pageFrameRequests()).toBeNull();
+  });
+});
+
+describe('unattended', () => {
+  const now = 10_000_000;
+  const use = { active: true, minimized: false, lastAccessed: 0, computer: 'active', now };
+
+  it('lets a visible tab work, however old the last click', () => {
+    expect(unattended(use, 1000)).toBe(false);
+  });
+
+  it('stops a background tab only after the limit', () => {
+    const hidden = { ...use, active: false };
+    expect(unattended({ ...hidden, lastAccessed: now - 999 }, 1000)).toBe(false);
+    expect(unattended({ ...hidden, lastAccessed: now - 1001 }, 1000)).toBe(true);
+  });
+
+  it('counts a minimized window as background', () => {
+    expect(unattended({ ...use, minimized: true, lastAccessed: now - 1001 }, 1000)).toBe(true);
+  });
+
+  it('stops an idle or locked computer', () => {
+    expect(unattended({ ...use, computer: 'idle' }, 1000)).toBe(true);
+    expect(unattended({ ...use, computer: 'locked' }, 1000)).toBe(true);
   });
 });
 

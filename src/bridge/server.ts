@@ -22,7 +22,8 @@ const RESPONSE_MARGIN_MS = 5_000;
 export type BridgeCall =
   | { type: 'call'; request: PanelRequest }
   | { type: 'chat'; request: ChatRequest }
-  | { type: 'context' };
+  | { type: 'context' }
+  | { type: 'frames' };
 
 export interface Bridge {
   call(message: BridgeCall, timeoutMs: number): Promise<PanelResult>;
