@@ -11,9 +11,12 @@ const EXT = 'abcdefghijklmnopabcdefghijklmnop';
 const ORIGIN = `chrome-extension://${EXT}`;
 const open: BridgeServer[] = [];
 
-async function startBridge() {
+async function startBridge(connectWaitMs?: number) {
   const pairing = new Pairing(join(tempDir(), 'secret'));
-  const bridge = new BridgeServer({ port: 0, extensionIds: [EXT] }, pairing);
+  const bridge = new BridgeServer(
+    { port: 0, extensionIds: [EXT], ...(connectWaitMs === undefined ? {} : { connectWaitMs }) },
+    pairing,
+  );
   await bridge.start();
   open.push(bridge);
   return { bridge, pairing, port: bridge.port() };
@@ -184,6 +187,46 @@ describe('calls', () => {
     await expect(bridge.call({ type: 'context' }, 100)).rejects.toMatchObject({
       code: 'bridge_not_connected',
     });
+  });
+
+  it('waits for a paired extension that is reconnecting', async () => {
+    const { bridge, pairing, port } = await startBridge(3000);
+    (await pair(port, bridge.status().pairingCode as string)).ws.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const secret = pairing.secret() as string;
+
+    const waiting = bridge.call({ type: 'context' }, 1000);
+    const ws = connect(port);
+    ws.on('message', (raw) => {
+      const message = JSON.parse(raw.toString());
+      if (message.type === 'challenge') {
+        const clientNonce = randomBytes(16).toString('hex');
+        ws.send(
+          JSON.stringify({
+            type: 'resume',
+            protocol: PROTOCOL_VERSION,
+            clientNonce,
+            proof: proof(secret, PROOF_CLIENT, message.serverNonce, clientNonce),
+          }),
+        );
+      }
+      if (message.type === 'context') {
+        ws.send(JSON.stringify({ type: 'result', id: message.id, result: { ok: true, status: 200 } }));
+      }
+    });
+    await expect(waiting).resolves.toEqual({ ok: true, status: 200 });
+    ws.close();
+  });
+
+  it('gives up after the wait when a paired extension never returns', async () => {
+    const { bridge, port } = await startBridge(150);
+    (await pair(port, bridge.status().pairingCode as string)).ws.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const started = Date.now();
+    await expect(bridge.call({ type: 'context' }, 100)).rejects.toMatchObject({
+      code: 'bridge_not_connected',
+    });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(140);
   });
 
   it('fails waiting calls when the extension drops', async () => {

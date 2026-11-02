@@ -37,6 +37,10 @@ interface ConnectionState {
 let socket: WebSocket | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
 let state: ConnectionState = { status: 'disconnected' };
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryStep = 0;
+/** Quick retries after a drop, so a restarted MCP client is found in seconds, not after the 30 s alarm. */
+const RETRY_DELAYS_MS = [500, 1000, 2000, 3000, 5000];
 
 async function loadSettings(): Promise<Settings> {
   const stored = await chrome.storage.local.get(['port', 'secret', 'allowWrites', 'pendingCode']);
@@ -47,6 +51,16 @@ async function loadSettings(): Promise<Settings> {
   if (typeof stored.secret === 'string') settings.secret = stored.secret;
   if (typeof stored.pendingCode === 'string') settings.pendingCode = stored.pendingCode;
   return settings;
+}
+
+function scheduleRetry(): void {
+  if (retryTimer) return;
+  const delay = RETRY_DELAYS_MS[Math.min(retryStep, RETRY_DELAYS_MS.length - 1)] as number;
+  retryStep += 1;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    void connect();
+  }, delay);
 }
 
 function setState(next: ConnectionState): void {
@@ -96,6 +110,7 @@ async function connect(): Promise<void> {
       await chrome.storage.local.set({ secret: message.secret });
       await chrome.storage.local.remove('pendingCode');
       authenticated = true;
+      retryStep = 0;
       return setState({ status: 'connected' });
     }
     if (message.type === 'welcome') {
@@ -103,6 +118,7 @@ async function connect(): Promise<void> {
       const expected = await hmacHex(secret, PROOF_SERVER, clientNonce, serverNonce);
       if (expected !== message.proof) return ws.close();
       authenticated = true;
+      retryStep = 0;
       return setState({ status: 'connected' });
     }
     if (message.type === 'rejected') {
@@ -124,7 +140,10 @@ async function connect(): Promise<void> {
     if (pingTimer) clearInterval(pingTimer);
     pingTimer = null;
     if (socket === ws) socket = null;
-    if (state.status !== 'pairing_failed') setState({ status: 'disconnected' });
+    if (state.status !== 'pairing_failed') {
+      setState({ status: 'disconnected' });
+      scheduleRetry();
+    }
   };
   ws.onerror = () => ws.close();
 }
