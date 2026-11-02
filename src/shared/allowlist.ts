@@ -15,6 +15,8 @@ export interface Rule {
   path: string;
   kind: RuleKind;
   binary?: boolean;
+  /** A report file built on request. These have their own daily limit and gap. */
+  report?: boolean;
   timeoutMs?: number;
   cacheSeconds?: number;
 }
@@ -132,6 +134,7 @@ export const RULES: readonly Rule[] = [
   read('stats.metadata', `${STATS}/report/metadata`, { cacheSeconds: STATS_CACHE }),
   read('stats.download', `${STATS}/report/download`, {
     binary: true,
+    report: true,
     cacheSeconds: 0,
     timeoutMs: REPORT_TIMEOUT_MS,
   }),
@@ -153,6 +156,7 @@ export const RULES: readonly Rule[] = [
   read('registers.operations', `${B}/pos/registers/:registerId/operations`),
   read('registers.download', `${B}/pos/registers/:registerId/direct_download/`, {
     binary: true,
+    report: true,
     cacheSeconds: 0,
   }),
   read('registers.cash_document', `${B}/invoicing/cash_register_document/:documentId/preview`, {

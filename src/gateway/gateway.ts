@@ -1,23 +1,30 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Bridge } from '../bridge/server.js';
+import { SAFE_MODE_OFF_WARNING, type TrafficPolicy } from '../config.js';
 import { BooksyError } from '../errors.js';
 import { resolveRule, type Rule } from '../shared/allowlist.js';
 import type {
   ChatAction,
+  ChatRequest,
+  FrameRequests,
   PanelContext,
   PanelFailure,
   PanelRequest,
   PanelResult,
   QueryValue,
 } from '../shared/protocol.js';
-import { Breaker } from './breaker.js';
+import { Breaker, describe, type BreakerStatus } from './breaker.js';
 import { stableStringify, TtlCache } from './cache.js';
-import { SequentialLimiter } from './limiter.js';
+import { TrafficLedger } from './ledger.js';
+import { DAY_MS, HOUR_MS, SequentialLimiter, type TaskKind } from './limiter.js';
 import { sanitize } from './sanitize.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_CACHE_SECONDS = 60;
 const CONTEXT_TTL_MS = 30_000;
 const CHAT_TIMEOUT_MS = 30_000;
+/** A chat read or send asks Booksy for the chat config and a token before it talks to the chat. */
+const CHAT_WEIGHT = 3;
 
 export interface RequestOptions {
   urlParams?: Record<string, string>;
@@ -40,11 +47,32 @@ export interface BinaryResponse {
 }
 
 export interface GatewayOptions {
-  minIntervalMs: number;
-  maxRequestsPerHour: number;
+  traffic: TrafficPolicy;
   maskContacts: boolean;
+  /** File for budgets and cooldowns. Without it they last as long as this process. */
+  ledgerPath?: string;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
+}
+
+interface Usage {
+  used: number;
+  limit: number | null;
+}
+
+export interface TrafficStatus {
+  mode: 'safe' | 'unrestricted';
+  warning?: string;
+  requests_this_hour: Usage;
+  requests_last_24h: Usage;
+  exports_last_24h: Usage;
+  cooldown: BreakerStatus;
+  limits: Record<string, number | null>;
+}
+
+function limit(value: number): number | null {
+  return Number.isFinite(value) ? value : null;
 }
 
 const FAILURE_MESSAGES: Partial<Record<PanelFailure, BooksyError>> = {
@@ -70,12 +98,20 @@ const FAILURE_MESSAGES: Partial<Record<PanelFailure, BooksyError>> = {
     'writes_disabled_in_extension',
     'Writes are switched off in the browser extension. Turn on "Allow writes" in its popup.',
   ),
+  panel_in_background: new BooksyError(
+    'panel_in_background',
+    'The Booksy Biz tab has been in the background, or this computer unused, for too long. Safe ' +
+      'mode sends no requests then. Click the tab once and try again.',
+  ),
 };
 
 /** The single path from a tool to the browser: policy, cache, breaker, queue, then the bridge. */
 export class Gateway {
+  readonly traffic: TrafficPolicy;
+  private readonly ledger: TrafficLedger;
   private readonly limiter: SequentialLimiter;
   private readonly breaker: Breaker;
+  private readonly calls = new AsyncLocalStorage<{ pages: number }>();
   private readonly cache: TtlCache<unknown>;
   private readonly now: () => number;
   private knownContext: PanelContext | null = null;
@@ -86,13 +122,17 @@ export class Gateway {
     private readonly options: GatewayOptions,
   ) {
     this.now = options.now ?? Date.now;
+    this.traffic = options.traffic;
+    this.ledger = new TrafficLedger(options.ledgerPath ?? null, this.now);
+    this.breaker = new Breaker(this.ledger, this.now);
     this.limiter = new SequentialLimiter({
-      minIntervalMs: options.minIntervalMs,
-      maxPerHour: options.maxRequestsPerHour,
+      policy: options.traffic,
+      ledger: this.ledger,
+      gate: () => this.breaker.assertClosed(),
       now: this.now,
       ...(options.sleep ? { sleep: options.sleep } : {}),
+      ...(options.random ? { random: options.random } : {}),
     });
-    this.breaker = new Breaker(this.now);
     this.cache = new TtlCache(this.now);
   }
 
@@ -113,7 +153,7 @@ export class Gateway {
 
     const cacheable = rule.kind === 'read';
     const key = cacheable ? await this.cacheKey(rule, options) : '';
-    if (cacheable && !options.fresh) {
+    if (cacheable && this.mayUseCache(key, options.fresh === true)) {
       const cached = this.cache.get(key);
       if (cached !== undefined) {
         return { data: cached, fromCache: true, businessId: this.businessId() };
@@ -122,7 +162,10 @@ export class Gateway {
 
     const result = await this.send(rule, options);
     const data = sanitize(result.data, { maskContacts: this.options.maskContacts });
-    if (cacheable) this.cache.set(key, data, rule.cacheSeconds ?? DEFAULT_CACHE_SECONDS);
+    if (cacheable) {
+      const seconds = (rule.cacheSeconds ?? DEFAULT_CACHE_SECONDS) * this.traffic.cacheMultiplier;
+      this.cache.set(key, data, seconds);
+    }
     else if (rule.kind === 'write') this.cache.clear();
     return { data, fromCache: false, businessId: this.businessId() };
   }
@@ -141,32 +184,108 @@ export class Gateway {
 
   async chat(chat: ChatAction): Promise<unknown> {
     this.breaker.assertClosed();
-    const result = await this.limiter.schedule(() =>
-      this.bridge.call(
-        { type: 'chat', request: { chat, timeoutMs: CHAT_TIMEOUT_MS } },
-        CHAT_TIMEOUT_MS,
-      ),
+    this.countPage();
+    const request: ChatRequest = { chat, timeoutMs: CHAT_TIMEOUT_MS, ...this.guard() };
+    const result = await this.limiter.schedule(
+      () => this.bridge.call({ type: 'chat', request }, CHAT_TIMEOUT_MS),
+      { kind: chat.action === 'send' ? 'write' : 'read', weight: CHAT_WEIGHT },
     );
     this.remember(result.context);
     if (!result.ok) throw this.toError(result);
-    this.breaker.success();
     return sanitize(result.data, { maskContacts: this.options.maskContacts });
+  }
+
+  /** Addresses the report frame has asked for by itself. Sends nothing to Booksy. */
+  async frameRequests(): Promise<FrameRequests[]> {
+    const result = await this.bridge.call({ type: 'frames' }, DEFAULT_TIMEOUT_MS);
+    if (!result.ok) throw this.toError(result);
+    return (result.data as FrameRequests[] | undefined) ?? [];
+  }
+
+  /** Runs one tool call, so the page limit can count everything that call asks for. */
+  scope<T>(work: () => Promise<T>): Promise<T> {
+    return this.calls.run({ pages: 0 }, work);
+  }
+
+  /** Between two windows or weeks of one tool call. */
+  pause(): Promise<void> {
+    return this.limiter.pause(this.traffic.windowPauseMs);
+  }
+
+  /** Refuses a date range that is too long, before anything is sent. */
+  assertRange(from: string, to: string, maxDays = this.traffic.maxRangeDays): void {
+    if (!Number.isFinite(maxDays)) return;
+    const days = (Date.parse(to) - Date.parse(from)) / DAY_MS + 1;
+    if (days > maxDays) {
+      throw new BooksyError(
+        'safe_mode_limit',
+        `Safe mode reads at most ${maxDays} days at once, and this range has ${days}. Split it ` +
+          'into shorter ranges.',
+      );
+    }
   }
 
   invalidate(): void {
     this.cache.clear();
   }
 
-  status(): {
-    requestsThisHour: number;
-    budgetPerHour: number;
-    breaker: ReturnType<Breaker['status']>;
-  } {
-    return {
-      requestsThisHour: this.limiter.usedThisHour(),
-      budgetPerHour: this.options.maxRequestsPerHour,
-      breaker: this.breaker.status(),
+  status(): TrafficStatus {
+    const { traffic, ledger } = this;
+    const status: TrafficStatus = {
+      mode: traffic.safeMode ? 'safe' : 'unrestricted',
+      requests_this_hour: {
+        used: ledger.count('requests', HOUR_MS),
+        limit: limit(traffic.maxRequestsPerHour),
+      },
+      requests_last_24h: {
+        used: ledger.count('requests', DAY_MS),
+        limit: limit(traffic.maxRequestsPerDay),
+      },
+      exports_last_24h: {
+        used: ledger.count('exports', DAY_MS),
+        limit: limit(traffic.maxExportsPerDay),
+      },
+      cooldown: this.breaker.status(),
+      limits: {
+        min_interval_ms: traffic.minIntervalMs,
+        write_interval_ms: traffic.writeIntervalMs,
+        export_interval_ms: traffic.exportIntervalMs,
+        max_pages_per_call: limit(traffic.maxPagesPerCall),
+        max_range_days: limit(traffic.maxRangeDays),
+        max_background_ms: limit(traffic.maxBackgroundMs),
+      },
     };
+    if (!traffic.safeMode) status.warning = SAFE_MODE_OFF_WARNING;
+    return status;
+  }
+
+  private mayUseCache(key: string, fresh: boolean): boolean {
+    if (!fresh) return true;
+    const age = this.cache.ageSeconds(key);
+    return age !== undefined && age < this.traffic.minFreshSeconds;
+  }
+
+  private countPage(): void {
+    const call = this.calls.getStore();
+    if (!call) return;
+    call.pages += 1;
+    if (call.pages > this.traffic.maxPagesPerCall) {
+      throw new BooksyError(
+        'safe_mode_limit',
+        `Safe mode lets one tool call make ${this.traffic.maxPagesPerCall} requests. Narrow it down ` +
+          'and call it again for the rest.',
+      );
+    }
+  }
+
+  private guard(): { maxBackgroundMs?: number } {
+    const { maxBackgroundMs } = this.traffic;
+    return Number.isFinite(maxBackgroundMs) ? { maxBackgroundMs } : {};
+  }
+
+  private taskKind(rule: Rule): TaskKind {
+    if (rule.kind === 'write') return 'write';
+    return rule.report ? 'export' : 'read';
   }
 
   private check(ruleId: string, options: RequestOptions): Rule {
@@ -179,16 +298,15 @@ export class Gateway {
 
   private async send(rule: Rule, options: RequestOptions): Promise<PanelResult> {
     this.breaker.assertClosed();
-    const request = buildRequest(rule, options);
+    this.countPage();
+    const request = { ...buildRequest(rule, options), ...this.guard() };
     const timeoutMs = rule.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const result = await this.limiter.schedule(() => {
-      // Checked again here: the breaker may have tripped while this task waited in the queue.
-      this.breaker.assertClosed();
-      return this.bridge.call({ type: 'call', request }, timeoutMs);
-    });
+    const result = await this.limiter.schedule(
+      () => this.bridge.call({ type: 'call', request }, timeoutMs),
+      { kind: this.taskKind(rule) },
+    );
     this.remember(result.context);
     if (!result.ok) throw this.toError(result);
-    this.breaker.success();
     return result;
   }
 
@@ -202,14 +320,24 @@ export class Gateway {
 
     if (status === 401) return FAILURE_MESSAGES.not_logged_in as BooksyError;
     if (status === 429 || /request_blocked|captcha/.test(text)) {
-      this.breaker.trip(status === 429 ? 'a 429 answer from Booksy' : 'a block answer from Booksy');
+      const cooldown = this.traffic.blockCooldownMs;
+      this.breaker.trip(status === 429 ? 'a 429 answer from Booksy' : 'a block answer from Booksy', cooldown);
       return new BooksyError(
         'blocked_by_booksy',
-        'Booksy refused the request as automated or too frequent. All requests are paused for 15 ' +
-          'minutes. Check the panel in your browser.',
+        `Booksy refused the request as automated or too frequent. All requests are paused for ` +
+          `${describe(cooldown)}, and nothing is retried. Check the panel in your browser.`,
       );
     }
-    if (status === 403) this.breaker.forbidden();
+    if (status === 403) {
+      const cooldown = this.traffic.forbiddenCooldownMs;
+      this.breaker.trip('a 403 answer from Booksy', cooldown);
+      return new BooksyError(
+        'blocked_by_booksy',
+        `Booksy answered 403. All requests are paused for ${describe(cooldown)}, and nothing is ` +
+          'retried. This login may not have access to that screen. Check the panel in your browser.',
+        body,
+      );
+    }
     if (result.failure === 'chat_failed') {
       return new BooksyError('chat_failed', result.message ?? 'Chat request failed.', body);
     }

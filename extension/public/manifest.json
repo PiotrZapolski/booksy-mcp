@@ -3,10 +3,14 @@
   "name": "Booksy MCP Bridge",
   "version": "0.1.0",
   "description": "Lets your local MCP server read your Booksy Biz panel through your own logged-in tab.",
-  "minimum_chrome_version": "116",
+  "minimum_chrome_version": "121",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs0nqlfl4d2mRInPb7dvca1BwCqFStsFV9G05qnF4N8QX2UoKBzlnDoh1TKzVQdR54ktwmrwY8u1WlFAqWCdxw48lx9ItWLedU9BnDvApjKXp6PihgRawW4Da2/QDl6AvvkcAsb6SUPh8yeAmDrNJbvu6x78u3gdpjzlNtf5RmugMnylV/x9CpRFF5xbEDLVK0Vot03zBnn8Ar0keEd0aGIXXtE6xGBSRzoFdobONgJmQZK3Td3/LNC76dPKfcI8EXf5sLPtOdH01AZj0F5HxtwD0JKuUlE35SgFTFymIzUK20jSOlgNPAT0ipBXr3kG79hTXifH967t80JngZGL7qwIDAQAB",
-  "permissions": ["scripting", "storage", "alarms"],
-  "host_permissions": ["https://booksy.com/pro/*", "http://127.0.0.1/*"],
+  "permissions": ["scripting", "storage", "alarms", "idle"],
+  "host_permissions": [
+    "https://booksy.com/pro/*",
+    "https://stats-and-reports.booksy.com/*",
+    "http://127.0.0.1/*"
+  ],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "Booksy MCP Bridge" }
 }

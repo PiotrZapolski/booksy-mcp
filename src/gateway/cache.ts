@@ -1,7 +1,7 @@
 const MAX_ENTRIES = 500;
 
 export class TtlCache<T> {
-  private readonly entries = new Map<string, { value: T; expires: number }>();
+  private readonly entries = new Map<string, { value: T; expires: number; stored: number }>();
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -21,7 +21,15 @@ export class TtlCache<T> {
       const oldest = this.entries.keys().next().value;
       if (oldest !== undefined) this.entries.delete(oldest);
     }
-    this.entries.set(key, { value, expires: this.now() + seconds * 1000 });
+    const stored = this.now();
+    this.entries.set(key, { value, expires: stored + seconds * 1000, stored });
+  }
+
+  /** Seconds since the entry was stored, or undefined when there is none. */
+  ageSeconds(key: string): number | undefined {
+    if (this.get(key) === undefined) return undefined;
+    const entry = this.entries.get(key);
+    return entry ? (this.now() - entry.stored) / 1000 : undefined;
   }
 
   clear(): void {

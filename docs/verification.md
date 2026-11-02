@@ -1,7 +1,9 @@
 # Live verification
 
-Everything in this project comes from reading the panel's public JavaScript. Nothing has been run
-against a real panel yet. This list is for the first live check.
+Most of this project comes from reading the panel's public JavaScript. A first passive look at a
+real Polish panel was done on 2026-11-02: GET requests the panel made by itself, nothing sent by this
+project. What it confirmed is marked `live` in [endpoints.md](endpoints.md). The tools themselves
+have not been run against a real panel yet. This list is for that check.
 
 ## Rules for the check
 
@@ -13,6 +15,10 @@ against a real panel yet. This list is for the first live check.
 - Stop at the first 403, 429, captcha or "request blocked" answer, and do not retry.
 
 ## Step 1: passive check, without this project
+
+Done for the main panel on 2026-11-02, see `live` in [endpoints.md](endpoints.md). Still open: every
+row that names `{S}`, because those requests come from a frame the check could not see (see
+[the report frame](#the-report-frame)), and the rows without a `live` entry.
 
 Open each panel screen once and note the GET requests. The tool name shows who depends on each one.
 
@@ -48,6 +54,49 @@ Open each panel screen once and note the GET requests. The tool name shows who d
 Entries in [endpoints.md](endpoints.md) confirmed here move from `bundle` or `do weryfikacji` to a
 new value, `live`.
 
+## The report frame
+
+The statistics screens (Panel, Wizyty, Klienci, Przychód, Wpływy płatności, Magazyn, Pracownicy,
+Marketing and reports such as "Lista wizyt") run in a cross-origin frame on
+`stats-and-reports.booksy.com`. A second frame on `web-gateway.booksy.com` keeps the session.
+Requests from these frames do not show up in the main tab.
+
+What the frame's public JavaScript shows:
+
+- It has no session of its own. When it starts, it asks the panel over `postMessage` for `identity`
+  (access token and profile), `business`, `config` and `locale`. No cookie carries the login.
+- Its API client is private to its module. Nothing outside the frame can call it, and the only other
+  way to make those requests is to read the token out of the frame or to copy its headers.
+- It calls `https://{country}.booksy.com/api/{country}/2/business_api/me/stats/...`.
+- For a download it sends `downloadFromApi` to the panel, and the panel makes the request with its
+  own client through `/core/v2`, with the same `{S}/report/download` path.
+
+So this project does not run requests inside the frame: that would need the token, which this project
+never touches. All `{S}` rules go through the panel's own client in the main tab, exactly as the
+download button already does. The tools then work from any panel screen. Whether the plain `{S}`
+reads are accepted on `/core/v2` the way the download is, nothing but a live check can tell.
+
+The extension can read the addresses the frame used: `stats_frame_requests` looks into the frame,
+from the extension's isolated world, and returns address shapes and parameter names only. It sends
+nothing to Booksy and does not touch `web-gateway.booksy.com`.
+
+To check, in this order, and stop at the first 403, 429 or block:
+
+1. Open Statistyki in the panel, wait for the screen, then run `stats_frame_requests`. Write down the
+   host, the prefix (`/api/pl/2/` expected) and the parameter names for each screen below.
+2. Compare them with the `{S}` rows above: `dashboard/main`, `dashboard` with `dashboard=...`,
+   `report`, `section`, `report/metadata`, `billing/cycles`. Move what matches to `live`.
+3. Open one report, for example Lista wizyt, and press Pobierz by hand once. Note in DevTools of the
+   main tab that `{S}/report/download` goes through `/core/v2`, with which parameters, and what the
+   file type and `Content-Disposition` are.
+4. Run `stats_overview` once, from a different panel screen than Statistyki. This is the one request
+   of this list that this project sends. A 200 with the figures of the screen means the `/core/v2`
+   route works for reads.
+5. If step 4 fails with 404: change the `{S}` read rules so the panel's client uses the frame's
+   prefix, and test once more. If it fails with 403 or a block: stop. Reads then need another design,
+   and there is no version of it that hands the token to this project.
+6. Confirm that `stats_frame_requests` returns nothing for `web-gateway.booksy.com`.
+
 ## Step 2: questions the code cannot answer
 
 1. Which HTTP methods do `{B}/customers/tags`, the two wallet paths, `warehouse/documents/:documentId`
@@ -67,19 +116,31 @@ new value, `live`.
 9. What are the panel's `timezone` and `first_day_of_week` values for the salon, and does
    `week_start_date` need to be a Monday?
 10. What does `{B}/notifications/` return compared with the bell list?
+11. `{B}/monthly_bookings`: does `version` stay `3`, and does the answer work without `resource_id`?
+    The tool always sends the ids, as the panel does.
+12. Which status does a statistics section answer when the plan does not include it? A 403 stops all
+    traffic for an hour in safe mode, and `stats_report_catalog` reads every section. If this is
+    common, read sections one by one with `dashboard`, and consider a softer rule for that case.
+13. `{B}/customers/:customerId/bookings`: which values do `state` and `inlcude_extra_bookings` take?
 
 ## Step 3: this project, read tools only
 
 Do not enable any write tool for this step. Leave "Allow writes" off in the extension.
 
 1. Load the extension and pair it with `session_status`.
-2. Confirm that the extension works with only `booksy.com/pro` and the local port. Check in
-   particular that Chrome's local network protection does not block the connection.
+2. Confirm that the extension works with `booksy.com/pro`, `stats-and-reports.booksy.com` and the
+   local port. Check in particular that Chrome's local network protection does not block the
+   connection. API calls to `pl.booksy.com` are made by the panel page, so they need no permission
+   of the extension.
 3. Confirm that the panel's store is reachable: `session_status` shows the salon name.
 4. Run in this order, with a pause between them: `business_profile`, `service_menu`,
    `team_resources`, `calendar_agenda` for today, `staff_schedule` for this week, `stats_overview`,
    `stats_report_catalog` for one section, `report_export` for one report.
 5. Compare one day of `calendar_agenda` and one report with what the panel shows.
+6. Check safe mode: `session_status` shows `mode: safe` and growing use of the budget. Leave the tab
+   in the background for over 20 minutes and confirm that a tool answers `panel_in_background`, then
+   the same with the Chrome window minimized and with the computer locked. In a minimized window,
+   check that `lastAccessed` of the tab behaves: if it stays old, the tool stops early, which is safe.
 
 ## Step 4: before enabling any write
 

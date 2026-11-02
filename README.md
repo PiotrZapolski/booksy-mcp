@@ -36,21 +36,19 @@ flowchart LR
 
 ### Calm traffic
 
-Requests should look like a person using the panel, because that is what the panel expects:
+Requests stay at the pace of a person using the panel, so the tool puts no more load on Booksy than
+you would. [Safe mode](#safe-mode) is on by default and sets the numbers.
 
-- **One at a time.** There is a single queue, and requests are never parallel.
-- **Spaced.** At least 2 seconds apart, with some random extra time. You can raise this, but it cannot
-  go below 1 second.
-- **Capped.** At most 300 requests per hour by default.
-- **Cached.** Repeated reads are answered locally, for 1 to 10 minutes depending on the data.
+- **One at a time.** There is a single queue, and requests are never parallel, in any mode.
+- **Spaced and capped.** Gaps, budgets and limits are listed under [Safe mode](#safe-mode).
+- **Cached.** Repeated reads are answered locally.
 - **Only what the panel calls.** There is a fixed list of endpoints, enforced in the server and
   again in the extension.
-- **No retries.** A 429, a block or a captcha pauses everything for 15 minutes. So do three 403
-  answers in a row.
+- **No retries.** A 403, a 429, a block or a captcha stops everything at once, in any mode.
 
 ## Install
 
-You need Node.js 20 or newer and Chrome 116 or newer.
+You need Node.js 20 or newer and Chrome 121 or newer.
 
 ### 1. Get the code
 
@@ -73,8 +71,10 @@ Once published, `npx -y booksy-mcp` will replace the path used below.
 After publishing, `npx -y booksy-mcp extension` will copy the extension to a folder and print its
 path.
 
-The extension asks for access to `booksy.com/pro` and the local port. It has no content script and
-leaves the panel untouched between calls.
+The extension asks for access to `booksy.com/pro`, the report frame on
+`stats-and-reports.booksy.com` and the local port. It also uses `idle`, to see that the computer is
+in use. It has no content script and leaves the panel untouched between calls. API calls to
+`pl.booksy.com` are made by the panel page itself.
 
 ### 3. Add the server to your MCP client
 
@@ -127,14 +127,53 @@ the names in the second column. Environment variables win.
 | `BOOKSY_MCP_DISABLED_TOOLS` | `disabledTools` | none | Tools to turn off, reads included |
 | `BOOKSY_MCP_EXPORT_DIR` | `exportDir` | `~/BooksyExports` | Where files are saved |
 | `BOOKSY_MCP_MASK_CONTACTS` | `maskContacts` | off | Mask phones and e-mails in tool output |
-| `BOOKSY_MCP_MIN_INTERVAL_MS` | `minIntervalMs` | `2000` | Gap between requests, minimum 1000 |
-| `BOOKSY_MCP_MAX_REQUESTS_PER_HOUR` | `maxRequestsPerHour` | `300` | Hourly limit |
+| `BOOKSY_MCP_SAFE_MODE` | `safeMode` | on | See [Safe mode](#safe-mode). Only `0`, `false`, `off`, `no` turn it off |
+| `BOOKSY_MCP_MIN_INTERVAL_MS` | `minIntervalMs` | none | Longer gap. Cannot go below safe mode |
+| `BOOKSY_MCP_MAX_REQUESTS_PER_HOUR` | `maxRequestsPerHour` | none | Lower hourly limit. Cannot go above safe mode |
 | `BOOKSY_MCP_MAX_RESULT_CHARS` | `maxResultChars` | `150000` | Larger results go to a file |
 | `BOOKSY_MCP_PORT` | `port` | `47821` | Local port, also set it in the extension |
 | `BOOKSY_MCP_EXTENSION_ID` | `extensionIds` | built-in id | Accepted extension id |
 
 Only one MCP client can use a port at a time. A second client gets a clear error. Give it another
 port, or close the first one.
+
+## Safe mode
+
+Safe mode is on unless you turn it off with `BOOKSY_MCP_SAFE_MODE=0` or `"safeMode": false`. A typo
+or any other value keeps it on. `session_status` shows the mode, the use of each budget and any
+cooldown. All thresholds live in `src/config.ts`.
+
+| Threshold | Safe mode | Safe mode off | Meaning |
+| --- | --- | --- | --- |
+| `minIntervalMs` | 4 s | none | Gap after the previous request has finished |
+| `jitterRatio` | 1 | 0 | Random extra on any gap, so 4 s means 4 to 8 s |
+| `writeIntervalMs` | 30 s | none | Gap between writes, which go one by one |
+| `exportIntervalMs` | 60 s | none | Gap between report exports |
+| `maxRequestsPerHour` | 120 | none | Requests in any 60 minutes |
+| `maxRequestsPerDay` | 500 | none | Requests in any 24 hours |
+| `maxExportsPerDay` | 15 | none | Report exports in any 24 hours |
+| `maxExportsPerCall` | 5 | none | Reports in one `report_export_batch` |
+| `maxPagesPerCall` | 15 | none | Requests one tool call may make |
+| `maxRangeDays` | 92 | none | Longest range of a calendar or shift tool |
+| `maxReportDays` | 366 | none | Longest period of a report |
+| `windowDays` | 14 | 31 | Calendar ranges are read in windows of this length |
+| `windowPauseMs` | 10 s | none | Pause between windows or weeks of one call |
+| `cacheMultiplier` | 5 | 1 | Cache lives 5, 25 or 50 minutes instead of 1, 5 or 10 |
+| `minFreshSeconds` | 60 | 0 | `fresh` still uses an answer younger than this |
+| `maxBackgroundMs` | 20 min | none | No requests when the panel tab is in the background or minimized, or the computer idle or locked, for longer |
+| `blockCooldownMs` | 6 h | 15 min | Stop after a 429, a captcha or `request_blocked` |
+| `forbiddenCooldownMs` | 1 h | 15 min | Stop after a plain 403, which can also mean a missing permission |
+
+Budgets and a cooldown are kept in `traffic.json` in the state folder, so restarting your MCP client
+does not reset them. That file holds timestamps and a reason, nothing else.
+
+**A stop is a stop, in both modes.** After a 403, a 429, a captcha or `request_blocked`, nothing else
+goes out, requests waiting in line are dropped, and nothing is retried. Check the panel in your
+browser. If it works and you know why the stop happened, `booksy-mcp reset-cooldown` ends it early.
+Tools cannot do that, so an assistant cannot lift a stop by itself.
+
+**With safe mode off** there are no budgets and no gaps. Requests stay one at a time, and a stop still
+stops. The server warns about this at start and in `session_status`. You take the risk.
 
 ## Tools
 
@@ -145,7 +184,7 @@ loads all of them at start, turn off what you do not need with `BOOKSY_MCP_DISAB
 
 **Session and business**
 
-- `session_status`: Shows whether the extension is connected, the pairing code when pairing is needed, the salon open in the panel, enabled write tools and the request budget.
+- `session_status`: Shows whether the extension is connected, the pairing code when pairing is needed, the salon open in the panel, enabled write tools, the traffic mode, budget use and any cooldown.
 - `opening_hours`: Opening hours of the business, day by day, for the week of the given date.
 - `business_accounts`: Lists the businesses the logged-in user can open in the panel.
 - `business_profile`: Public profile and core data of the business open in the panel tab.
@@ -222,6 +261,7 @@ loads all of them at start, turn off what you do not need with `BOOKSY_MCP_DISAB
 - `report_export`: Downloads any report the panel offers as a file and saves it on this computer.
 - `report_export_batch`: Saves several reports for one period, strictly one after another.
 - `document_download`: Saves a cash register report, cash document, invoice or consent as a local file.
+- `stats_frame_requests`: A check for live verification. Shows which addresses the report frame asked for by itself, without ids, values or headers. Sends nothing to Booksy.
 
 **Payments (read only)**
 
@@ -315,8 +355,8 @@ fee preview only.
 also convert it to CSV or return the rows as JSON. `stats_report_catalog` lists the report keys
 available to your salon, because they depend on your plan and country.
 
-Ranges of any length work in `calendar_agenda`. Long ranges are split into windows of 31 days and read
-one after another. `appointment_changes_feed` reports new, moved and cancelled appointments since
+`calendar_agenda` splits long ranges into windows and reads them one after another with a pause. In
+safe mode a range can have at most 92 days. `appointment_changes_feed` reports new, moved and cancelled appointments since
 its last run, using a small local snapshot of ids, times and statuses.
 
 ## Security and privacy
@@ -347,8 +387,8 @@ Read this before you use the tool. It is not legal advice.
   explicitly forbid automated tools and reverse engineering. Read the terms that apply to you
   ([Poland](https://booksy.com/pro/terms/pl.html), [US](https://booksy.com/pro/terms/us.html)).
 - **Your account can be blocked.** Booksy can suspend or terminate an account for a breach of its
-  terms, in some cases immediately and without compensation. Careful traffic lowers the chance of
-  being noticed, but it does not remove the risk or change what the terms say.
+  terms, in some cases immediately and without compensation. Safe mode keeps the load low, but it
+  does not remove the risk or change what the terms say.
 - **Your business depends on that account.** If losing it would hurt, think twice.
 - **Writes affect real people.** They change real appointments and can message real clients and
   cost money.

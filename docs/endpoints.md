@@ -14,7 +14,9 @@ Booksy can change any of this at any time. This is not an official API.
   - `bundle`: the path and the HTTP method are both visible in a panel call.
   - `do weryfikacji`: the path is in the bundle, but the method or the call is not clear from the
     code. It needs checking against real panel traffic.
-  - No entry is marked as confirmed live yet. See [verification.md](verification.md).
+  - `live`: seen in a real Polish panel on 2026-11-02, in GET requests the panel made by itself.
+    Requests from the statistics frame could not be seen, so `{S}` entries stay `bundle`. See
+    [verification.md](verification.md).
 - **Access:** `read`, `estimate` (a POST or PUT that calculates without saving), `write`, or `?`.
 - **Tool:** the tool in this project that uses the endpoint. An empty cell means the endpoint is not
   in the allowlist, so this project cannot call it.
@@ -27,14 +29,19 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 ## How the panel talks to the API
 
 - The panel is a Vue application under `booksy.com/pro`.
-- Core calls go to `https://{country}.booksy.com/core/v2`. Other services use their own prefix on
+- The panel lives on `booksy.com/pro`. Core calls go to `https://{country}.booksy.com/core/v2`, seen
+  live as `https://pl.booksy.com/core/v2`. Other services use their own prefix on
   the panel origin, for example `/loyalty-card-service/`.
 - The panel's client adds `X-Api-Key`, `X-Access-Token`, `X-Fingerprint`, `X-App-Version`,
   `Accept-Language` and a request id. This project does not set any of them: it calls that client.
 - The session token is kept in a frame on `web-gateway.booksy.com` and restored into the panel's
   store memory.
-- Reports run in a separate frontend on `stats-and-reports.booksy.com`. File downloads are passed
-  back to the panel and made by the panel's client.
+- Reports run in a separate frontend, a cross-origin frame on `stats-and-reports.booksy.com`. It has
+  no session of its own. The panel hands it `identity` (with the access token), `business`, `config`
+  and `locale` over `postMessage`. The frame then calls the same API with its own client, at
+  `https://{country}.booksy.com/api/{country}/2/...`, with the token in `X-Access-Token`. No cookie
+  is involved. File downloads are passed back to the panel by the `downloadFromApi` event and made
+  by the panel's client, through `/core/v2`.
 - Report keys are not in the code. The report screens get them from the API (`reports[].key`).
 - Panel sections of the reports screen: `appointments`, `clients`, `revenue`, `cash_flow`,
   `inventory`, `staff`, `promotion`, `tips`.
@@ -51,7 +58,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 
 ## Summary
 
-- 668 entries: 506 `bundle`, 162 `do weryfikacji`.
+- 667 entries: 33 `live`, 481 `bundle`, 153 `do weryfikacji`.
 - 95 of them are in this project's allowlist.
 
 ## Session and account
@@ -90,7 +97,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | GET | `/route/environments` |  | route environments | read | bundle |  |
 | ? | `/routing/config` |  | routing config | ? | do weryfikacji |  |
 | GET | `/routing/config/billing` |  | billing global settings | read | bundle |  |
-| GET | `/routing/server_time` |  | server time | read | do weryfikacji |  |
+| GET | `/routing/server_time/` |  | server time | read | live |  |
 | POST | `/utils/password_check` |  | password check | write | bundle |  |
 | POST | `/utils/phone_check` |  | phone check | write | bundle |  |
 | GET | `/utils/reverse_geocode` | latitude, longitude, decoder | reverse geocode | read | bundle |  |
@@ -129,16 +136,16 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | POST | `{B}/appointments/:appointmentUid/notify_ready` |  | appointment ready | write | bundle |  |
 | ? | `{B}/appointments/dry_run` |  | appointments dryrun | ? | do weryfikacji |  |
 | GET | `{B}/billing/boost/overdue/appointments` |  | billing overdue boost | read | bundle |  |
-| GET | `{B}/calendar` |  | business calendar | read | bundle | `calendar_agenda`, `calendar_open_slots`, `appointment_requests`, `appointment_changes_feed` |
-| ? | `{B}/calendar/banners` |  | calendar banners | ? | do weryfikacji |  |
+| GET | `{B}/calendar` | start_date, end_date, include_unconfirmed, version, resources_per_page | business calendar | read | live | `calendar_agenda`, `calendar_open_slots`, `appointment_requests`, `appointment_changes_feed` |
+| GET | `{B}/calendar/banners/` |  | calendar banners | read | live |  |
 | GET | `{B}/calendar/banners/redirection` |  | calendar banners redirection | read | do weryfikacji |  |
 | GET | `{B}/calendar/changed_dates/:timestamp` |  | business calendar change dates | read | bundle | `calendar_changed_dates` |
 | GET | `{B}/calendar/customers` |  | calendar customers | read | bundle |  |
 | PUT | `{B}/calendar/drag_subbooking/:bookingId` |  | appointment drag | write | bundle |  |
 | GET | `{B}/calendar/next_staffer` | for_date, e | next staffer | read | do weryfikacji |  |
-| GET | `{B}/calendar/splash` |  | calendar splash | read | do weryfikacji |  |
+| GET | `{B}/calendar/splash/` |  | calendar splash | read | live |  |
 | POST | `{B}/calendar/splash/prepayment` |  | splash prepayment | write | bundle |  |
-| ? | `{B}/monthly_bookings` |  | business calendar monthly | ? | do weryfikacji |  |
+| GET | `{B}/monthly_bookings` | resource_id (repeated), start_date, end_date, include_unconfirmed, version, resources_per_page | business calendar monthly | read | live |  |
 | GET | `{B}/payments/appointments/:appointmentId/details` |  | appointments details | read | bundle | `appointment_payment_details` |
 | GET | `{B}/repeating_bookings/:repeatingId` |  | repeating | read | bundle |  |
 | ? | `{B}/reservations` |  | reservation new | ? | do weryfikacji |  |
@@ -179,9 +186,8 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | ? | `{B}/pos/commissions/mass/resources/:resourceId/products` |  | pos commission change resource products | ? | do weryfikacji |  |
 | ? | `{B}/pos/commissions/mass/resources/:resourceId/service_variants` |  | pos commission change resource service variants | ? | do weryfikacji |  |
 | POST | `{B}/resources` |  | resources | write | bundle |  |
-| GET | `{B}/resources` |  | resources | read | bundle | `team_resources` |
+| GET | `{B}/resources` |  | resources | read | live | `team_resources` |
 | PUT | `{B}/resources` |  | resources | write | bundle |  |
-| ? | `{B}/resources` |  | resources | ? | do weryfikacji |  |
 | GET | `{B}/resources/:resourceId/permission_overrides` |  | resources permission overrides | read | bundle |  |
 | PUT | `{B}/resources/:resourceId/permission_overrides` |  | resources permission overrides | write | bundle |  |
 | GET | `{B}/resources/:resourceId/upcoming_bookings` |  | resources upcoming bookings | read | bundle | `resource_upcoming_bookings` |
@@ -194,7 +200,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | GET | `{B}/shifts/resources/:resourceId/time_offs/:timeOffId` |  | shifts time off edit | read | do weryfikacji |  |
 | POST | `{B}/shifts/resources/:resourceId/working_hours` |  | shifts working hours | write | bundle |  |
 | POST | `{B}/shifts/resources/time_offs` |  | shifts time offs | write | bundle | `time_off_add` |
-| GET | `/business_api/me/resources/:resourceId` |  | resource | read | bundle | `resource_details` |
+| GET | `/business_api/me/resources/:resourceId` |  | resource | read | live | `resource_details` |
 | PUT | `/business_api/me/resources/:resourceId` |  | resource | write | bundle |  |
 | DELETE | `/business_api/me/resources/:resourceId` |  | resource | write | bundle |  |
 | ? | `/business_api/me/resources/:resourceId/invite` |  | resource invite | ? | do weryfikacji |  |
@@ -205,7 +211,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | Method | Path | Parameters | Purpose | Access | Confidence | Tool |
 | --- | --- | --- | --- | --- | --- | --- |
 | GET | `/business_api/categories` |  | business api categories | read | bundle |  |
-| GET | `{B}/categories` |  | business categories | read | bundle |  |
+| GET | `{B}/categories` |  | business categories | read | live |  |
 | GET | `{B}/features_status/service_promotions` |  | tile statuses promotions | read | bundle |  |
 | POST | `{B}/pos/apply_tax_rate/services` |  | pos apply tax rate for services | write | bundle |  |
 | ? | `{B}/pos/commissions/mass/service_variants` |  | pos commission change service variants | ? | do weryfikacji |  |
@@ -254,7 +260,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 
 | Method | Path | Parameters | Purpose | Access | Confidence | Tool |
 | --- | --- | --- | --- | --- | --- | --- |
-| GET | `{B}/business_consents` |  | businesses business consents | read | bundle |  |
+| GET | `{B}/business_consents/` |  | businesses business consents | read | live |  |
 | PUT | `{B}/business_consents` |  | businesses business consents | write | bundle |  |
 | GET | `{B}/consent_forms` |  | consent forms | read | bundle | `consent_forms` |
 | GET | `{B}/consent_forms/:formId` |  | consent forms | read | bundle |  |
@@ -266,19 +272,18 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | POST | `{B}/consents/:consentUuid/send_email` |  | consent id send email | write | bundle |  |
 | POST | `{B}/consents/:consentUuid/sign` | field | consent id sign | write | bundle |  |
 | GET | `{B}/customer_agreements` |  | customer agreements | read | bundle |  |
-| GET | `{B}/customer_groups` |  | customer groups | read | bundle | `customer_groups` |
+| GET | `{B}/customer_groups` |  | customer groups | read | live | `customer_groups` |
 | GET | `{B}/customer/exists` |  | customer exists | read | bundle |  |
 | POST | `{B}/customers` |  | customers | write | bundle | `customer_add` |
-| GET | `{B}/customers` |  | customers | read | bundle | `customer_cards` |
-| ? | `{B}/customers` |  | customers | ? | do weryfikacji |  |
+| GET | `{B}/customers` | page, per_page, compact | customers | read | live | `customer_cards` |
 | ? | `{B}/customers/:businessCustomerId/invite` |  | invite | ? | do weryfikacji |  |
 | PUT | `{B}/customers/:customerId` |  | business customer | write | bundle | `customer_update`, `customer_note_set` |
 | DELETE | `{B}/customers/:customerId` |  | business customer | write | bundle | `customer_delete` |
-| GET | `{B}/customers/:customerId` |  | business customer | read | bundle | `customer_card` |
+| GET | `{B}/customers/:customerId` |  | business customer | read | live | `customer_card` |
 | POST | `{B}/customers/:customerId/attached_files` |  | customer files | write | bundle |  |
 | DELETE | `{B}/customers/:customerId/attached_files/:attachedFileId` |  | customer attached file | write | bundle |  |
 | GET | `{B}/customers/:customerId/attached_files/:attachedFileId/download` |  | customer attached file download | read | bundle | `customer_file_download` |
-| GET | `{B}/customers/:customerId/bookings` | page, per_page, inlcude_extra_bookings, state | customer bookings | read | bundle | `customer_visit_history` |
+| GET | `{B}/customers/:customerId/bookings` | page, per_page, inlcude_extra_bookings (spelled so by the panel), state | customer bookings | read | live | `customer_visit_history` |
 | GET | `{B}/customers/:customerId/buyers` |  | customer buyers | read | bundle |  |
 | ? | `{B}/customers/:customerId/family` |  | family friends | ? | do weryfikacji |  |
 | ? | `{B}/customers/:customerId/link` |  | customer link | ? | do weryfikacji |  |
@@ -317,7 +322,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | PUT | `/ai-receptionist-management-service/v1/business/:businessId/contact-info` |  | business contact-info | write | bundle |  |
 | GET | `/ai-receptionist-management-service/v1/config` |  | v1 config | read | bundle |  |
 | ? | `{B}/email_templates` |  | email templates | ? | do weryfikacji |  |
-| GET | `{B}/get_notification_text` | type | notification text | read | bundle |  |
+| GET | `{B}/get_notification_text` | type | notification text | read | live |  |
 | POST | `{B}/invite_again` | page, per_page, compact, page_source | invite again | write | bundle |  |
 | GET | `{B}/invite_again` | page, per_page, compact, page_source | invite again | read | bundle |  |
 | GET | `{B}/message_blast` | flat | message template groups | read | bundle | `campaign_groups` |
@@ -339,7 +344,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | GET | `{B}/message_blast/template_images` | page, per_page, template_internal_name | blast template images | read | bundle |  |
 | GET | `{B}/message_blast/template_images/all_images` | page, per_page | blast all images | read | bundle |  |
 | GET | `{B}/message_blast/template_images/category_tree` |  | blast images tree | read | bundle |  |
-| GET | `{B}/notification_list/:status` | timestamp, icon, page, per_page | notifications | read | bundle | `panel_notifications` |
+| GET | `{B}/notification_list/:status/` | page, per_page; live for `new` and `active` | notifications | read | live | `panel_notifications` |
 | POST | `{B}/notification_list/:status` | timestamp, icon, page, per_page | notifications | write | bundle |  |
 | ? | `{B}/notification_templates` |  | notification templates | ? | do weryfikacji |  |
 | GET | `{B}/notifications` |  | internal notifications | read | bundle | `business_notification_settings` |
@@ -367,7 +372,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | POST | `{B}/billing/boost/overdue/retry_charge` |  | boost retry charge | write | bundle |  |
 | POST | `{B}/boost/claim_client` |  | claim boost client | write | bundle |  |
 | POST | `{B}/boost/claim_upload_urls` |  | claim upload urls | write | bundle |  |
-| GET | `{B}/boost/conditions` |  | boost conditions | read | bundle |  |
+| GET | `{B}/boost/conditions` |  | boost conditions | read | live |  |
 | ? | `{B}/boost/cost` |  | boost cost | ? | do weryfikacji |  |
 | GET | `{B}/boost/dashboard` |  | boost dashboard | read | bundle |  |
 | GET | `{B}/boost/details` |  | boost details | read | bundle |  |
@@ -382,7 +387,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | ? | `{B}/digital_flyer/hashtags` |  | digital flyer hashtags | ? | do weryfikacji |  |
 | POST | `{B}/digital_flyer/render` |  | digital flyer render | write | bundle |  |
 | POST | `{B}/digital_flyer/shared` |  | digital flyer shared | write | bundle |  |
-| GET | `{B}/features_status/boost` |  | boost status | read | bundle |  |
+| GET | `{B}/features_status/boost/` |  | boost status | read | live |  |
 | ? | `{B}/google_business_profile/booksy_profile` |  | google business profile booksy profile | ? | do weryfikacji |  |
 | ? | `{B}/google_business_profile/complete_verification` |  | google business profile complete verification | ? | do weryfikacji |  |
 | ? | `{B}/google_business_profile/gbp_accounts` |  | google business profile gbp accounts | ? | do weryfikacji |  |
@@ -396,7 +401,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | ? | `{B}/google_places` |  | businesses google places | ? | do weryfikacji |  |
 | GET | `{B}/hints` |  | hints | read | bundle |  |
 | PUT | `{B}/hints` |  | hints | write | bundle |  |
-| GET | `{B}/images/v2` | category, per_page | images | read | bundle |  |
+| GET | `{B}/images/v2` | category, page, per_page | images | read | live |  |
 | POST | `{B}/images/v2` | category, per_page | images | write | bundle |  |
 | PATCH | `{B}/images/v2/:imageId` |  | image | write | bundle |  |
 | DELETE | `{B}/images/v2/:imageId` |  | image | write | bundle |  |
@@ -405,7 +410,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | ? | `{B}/images/v2/:imageId/move_after` |  | image move after | ? | do weryfikacji |  |
 | ? | `{B}/images/v2/:imageId/move_before` |  | image move before | ? | do weryfikacji |  |
 | POST | `{B}/images/v2/:imageId/set_cover` |  | image set cover | write | bundle |  |
-| GET | `{B}/images/v2/cover` |  | images cover | read | bundle |  |
+| GET | `{B}/images/v2/cover` |  | images cover | read | live |  |
 | POST | `{B}/images/v2/cover` |  | images cover | write | bundle |  |
 | POST | `{B}/instagram/access_token` |  | instagram access token | write | bundle |  |
 | GET | `{B}/instagram/images` | access_token, limit, page_token | instagram images | read | bundle |  |
@@ -422,8 +427,8 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | GET | `{B}/premium_services/status` |  | tile statuses premium services | read | bundle |  |
 | POST | `{B}/profile_completeness/steps/finish/:stepInternalName` |  | post offline step | write | bundle |  |
 | GET | `{B}/profile_completeness/tiers` |  | get all steps | read | bundle |  |
-| GET | `{B}/profile_completeness/tiers/active` |  | get active step | read | bundle |  |
-| GET | `{B}/profile_settings_splash` |  | profile settings splash | read | do weryfikacji |  |
+| GET | `{B}/profile_completeness/tiers/active/` |  | get active step | read | live |  |
+| GET | `{B}/profile_settings_splash/` |  | profile settings splash | read | live |  |
 | POST | `{B}/profile_settings_splash/platform_fee/decision` |  | platform fee decision | write | bundle |  |
 | ? | `{B}/promotions` |  | promotions | ? | do weryfikacji |  |
 | POST | `{B}/promotions/:promotionType` |  | promotion single | write | bundle |  |
@@ -432,9 +437,9 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | GET | `{B}/qr_codes/business` |  | qr code business image | read | bundle |  |
 | GET | `{B}/qr_codes/business_package` |  | qr code business pdf | read | bundle |  |
 | GET | `{B}/qr_codes/business/generic` |  | business generic | read | bundle |  |
-| GET | `{B}/reviews` | ordering, reviews_page, reviews_per_page, reviews_rank | reviews | read | bundle | `reviews_feed` |
+| GET | `{B}/reviews/` | reviews_page, reviews_per_page | reviews | read | live | `reviews_feed` |
 | PUT | `{B}/reviews/:reviewId/reply` |  | reviews reply | write | bundle | `review_reply` |
-| GET | `{B}/stories` | story_key | stories drawer hints | read | bundle |  |
+| GET | `{B}/stories/` | story_key | stories drawer hints | read | live |  |
 | POST | `{B}/v2/poll` |  | poll | write | bundle |  |
 | POST | `{B}/v2/polls_list` |  | polls list | write | bundle |  |
 | GET | `{B}/v3/polls/booksy_pay_churn` |  | polls booksy pay churn | read | bundle |  |
@@ -467,11 +472,11 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | GET | `{B}/nf525/fiscal_receipts/sale_by_basket/:basketId` |  | fiscal receipts sale by basket | read | bundle |  |
 | GET | `{B}/nf525/payments_summary` |  | fiscal payments summary | read | bundle |  |
 | GET | `{B}/nf525/settings` |  | certification settings | read | bundle |  |
-| GET | `{B}/payments/account_details/stripe` |  | stripe payments account details | read | bundle |  |
+| GET | `{B}/payments/account_details/stripe/` |  | stripe payments account details | read | live |  |
 | DELETE | `{B}/payments/account_details/stripe/payout_method/:token` |  | stripe delete payout method | write | bundle |  |
 | POST | `{B}/payments/account_details/stripe/payout_method/:token/set_as_default/:payoutType` |  | stripe set default payout | write | bundle |  |
 | POST | `{B}/payments/account_details/stripe/payout_methods` |  | stripe payout methods | write | bundle |  |
-| GET | `{B}/payments/account_holder_settings/provider/stripe` |  | stripe account holder info | read | bundle |  |
+| GET | `{B}/payments/account_holder_settings/provider/stripe/` |  | stripe account holder info | read | live |  |
 | PUT | `{B}/payments/account_holder_settings/provider/stripe` |  | stripe account holder info | write | bundle |  |
 | POST | `{B}/payments/account/stripe` |  | stripe payments stripe account | write | bundle |  |
 | GET | `{B}/payments/banners` |  | stripe payments banners | read | bundle |  |
@@ -521,8 +526,8 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | ? | `{B}/pos/registers/:registerId/operations` |  | pos registers id operations | ? | do weryfikacji |  |
 | GET | `{B}/pos/registers/:registerId/operations` |  | pos registers id operations | read | bundle | `cash_register_operations` |
 | POST | `{B}/pos/registers/:registerId/reopen` |  | pos registers id reopen | write | bundle |  |
-| GET | `{B}/pos/search_items` |  | pos search items | read | bundle |  |
-| ? | `{B}/pos/transactions` |  | pos transactions | ? | do weryfikacji |  |
+| GET | `{B}/pos/search_items` | object_type, sort_order, per_page | pos search items | read | live |  |
+| GET | `{B}/pos/transactions` |  | pos transactions | read | live |  |
 | DELETE | `{B}/pos/transactions/:transactionId` |  | pos transaction | write | bundle |  |
 | GET | `{B}/pos/transactions/:transactionId` |  | pos transaction | read | bundle | `checkout_transaction` |
 | POST | `{B}/pos/transactions/:transactionId/action` |  | pos transaction action | write | bundle |  |
@@ -538,7 +543,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | POST | `{B}/stripe_sdi/terminal/:readerId/action/cancel` |  | stripe sdi cancel payment | write | bundle |  |
 | POST | `{B}/stripe_sdi/terminal/:readerId/payment_intent/:paymentIntentId/process` |  | stripe sdi process payment | write | bundle |  |
 | DELETE | `{B}/stripe/account` |  | stripe account | write | bundle |  |
-| GET | `{B}/stripe/account` |  | stripe account | read | bundle |  |
+| GET | `{B}/stripe/account/` |  | stripe account | read | live |  |
 | POST | `{B}/stripe/account_link` |  | stripe kyc link | write | bundle |  |
 | GET | `{B}/stripe/available_balance` |  | stripe available balance | read | bundle |  |
 | GET | `{B}/stripe/config` |  | stripe config | read | bundle |  |
@@ -572,7 +577,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | POST | `{B}/billing/payment_methods/:paymentMethodId/default` |  | billing payment set default | write | bundle |  |
 | POST | `{B}/billing/s/payment_method/async` |  | stripe payment method | write | bundle |  |
 | PUT | `{B}/billing/s/payment_method/async` |  | stripe payment method | write | bundle |  |
-| GET | `{B}/billing/settings` |  | billing business settings | read | bundle |  |
+| GET | `{B}/billing/settings/` |  | billing business settings | read | live |  |
 | POST | `{B}/billing/settings` |  | billing business settings | write | bundle |  |
 | PUT | `{B}/billing/settings/offline_migration/reminder` |  | offline migration popup | write | bundle |  |
 | GET | `{B}/billing/subscription/details` |  | billing subscription details | read | bundle |  |
@@ -744,14 +749,14 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | PUT | `{B}/categorised_safety_rules` |  | businesses categorised safety rules | write | bundle |  |
 | GET | `{B}/check_new_geolocation` | new_geolocation | check new geolocation | read | bundle |  |
 | ? | `{B}/experiment_variant/:experimentName` |  | experiments business | ? | do weryfikacji |  |
-| GET | `{B}/features_status` |  | tile statuses | read | bundle | `business_features` |
+| GET | `{B}/features_status/` |  | tile statuses | read | live | `business_features` |
 | GET | `{B}/online_booking_integrations` |  | online booking integrations | read | bundle | `business_integrations` |
 | POST | `{B}/online_booking_integrations/activate` |  | online booking integrations activate | write | bundle |  |
 | POST | `{B}/online_booking_integrations/deactivate` |  | online booking integrations deactivate | write | bundle |  |
 | GET | `{B}/partner_apps` |  | installed partner apps | read | bundle |  |
 | ? | `{B}/partner_apps/:clientId` |  | installed partner app details | ? | do weryfikacji |  |
 | PATCH | `{B}/partner_apps/:clientId/suspend` |  | partner app suspend | write | bundle |  |
-| GET | `{B}/partner_apps/catalog` | promoted | partner apps catalog | read | bundle |  |
+| GET | `{B}/partner_apps/catalog/` | promoted | partner apps catalog | read | live |  |
 | GET | `{B}/partner_apps/catalog/:clientId` |  | partner app details | read | bundle |  |
 | PUT | `{B}/pos` |  | pos | write | bundle |  |
 | GET | `{B}/pos` |  | pos | read | bundle | `business_pos_settings` |
@@ -765,7 +770,7 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | ? | `{B}/safety_rules` |  | safety rules | ? | do weryfikacji |  |
 | GET | `{B}/search/v2/venue_search` |  | v2 venue search | read | bundle |  |
 | GET | `{B}/segment/booking_counters` |  | booking counters | read | bundle |  |
-| ? | `{B}/settings/banners` |  | settings banners | ? | do weryfikacji |  |
+| GET | `{B}/settings/banners/` |  | settings banners | read | live |  |
 | ? | `{B}/suggest_services` |  | services suggestion 2 | ? | do weryfikacji |  |
 | GET | `{B}/ttp_reminder_splash` |  | ttp reminder splash | read | do weryfikacji |  |
 | GET | `/business_api/me/businesses/b_listing` | source_phone | b listing | read | bundle |  |
@@ -786,3 +791,11 @@ Abbreviations: `{B}` is `/business_api/me/businesses/:businessId`, `{S}` is
 | POST | `/referrals/cje` |  | referrals cje | write | bundle |  |
 | POST | `/salesforce_in_app_chat_jwt` |  | salesforce in chat app jwt | write | bundle |  |
 | ? | `/salesforce_in_app_chat_jwt` |  | salesforce in chat app jwt | ? | do weryfikacji |  |
+
+## Seen live, outside the bundle reading
+
+Found in the live panel on 2026-11-02. They had no entry above. None of them is in the allowlist.
+
+| Method | Path | Parameters | Purpose | Access | Confidence | Tool |
+| --- | --- | --- | --- | --- | --- | --- |
+| GET | `https://{country}.booksy.com/ecommerce/v1/business/:businessId/gallery/todays-promotions/has-items/` |  | store promotions flag, outside core | read | live |  |

@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { z } from 'zod';
+import { BooksyError } from '../errors.js';
 import { extensionFor, saveFile } from '../exports/files.js';
 import { readWorkbook, type Sheet, toCsv, toRecords } from '../exports/sheet.js';
 import { readTool, schema, type Args, type ToolContext, type ToolDef } from './define.js';
@@ -42,6 +43,11 @@ const filters = z
   .optional()
   .describe('Extra report filters from stats_report_metadata, such as staffer_id');
 
+function assertReportPeriod(args: Args, context: ToolContext): void {
+  const { gateway } = context;
+  gateway.assertRange(args.date_from as string, args.date_till as string, gateway.traffic.maxReportDays);
+}
+
 const statsOverview = readTool({
   name: 'stats_overview',
   title: 'Statistics overview',
@@ -49,6 +55,7 @@ const statsOverview = readTool({
   rule: 'stats.main',
   input: period,
   query: periodQuery,
+  check: assertReportPeriod,
 });
 
 const statsDashboard = readTool({
@@ -58,6 +65,7 @@ const statsDashboard = readTool({
   rule: 'stats.dashboard',
   input: { ...period, dashboard: z.enum(DASHBOARDS).describe('Section') },
   query: [...periodQuery, 'dashboard'],
+  check: assertReportPeriod,
 });
 
 const reportMetadata = readTool({
@@ -91,6 +99,7 @@ const report: ToolDef = {
   },
   write: false,
   async handler(args, context) {
+    assertReportPeriod(args, context);
     const response = await context.gateway.request('stats.report', {
       params: {
         report_key: args.report_key as string,
@@ -117,6 +126,7 @@ const section: ToolDef = {
   },
   write: false,
   async handler(args, context) {
+    assertReportPeriod(args, context);
     const response = await context.gateway.request('stats.section', {
       params: {
         date_from: args.date_from as string,
@@ -136,13 +146,15 @@ const catalog: ToolDef = {
   description:
     'Every report key this salon can open, per statistics section. Booksy decides the keys by plan ' +
     'and country, so they are read from the panel. Reads one section after another, so it is slow ' +
-    'the first time. Pass dashboard for just one section.',
+    'the first time. Pass dashboard for just one section. A stop ends the reading, and the keys ' +
+    'found until then are returned.',
   input: {
     ...period,
     dashboard: z.enum(DASHBOARDS).optional().describe('Only this section'),
   },
   write: false,
   async handler(args, context) {
+    assertReportPeriod(args, context);
     const sections = args.dashboard ? [args.dashboard as string] : [...DASHBOARDS];
     const reports: Array<{ dashboard: string; key: unknown; title: unknown }> = [];
     const unavailable: Array<{ dashboard: string; reason: string }> = [];
@@ -162,8 +174,13 @@ const catalog: ToolDef = {
           reports.push({ dashboard, key: entry.key, title: entry.title });
         }
       } catch (error) {
-        if ((error as { code?: string }).code !== 'booksy_error') throw error;
-        unavailable.push({ dashboard, reason: (error as Error).message });
+        const message = (error as Error).message;
+        if ((error as { code?: string }).code === 'booksy_error') {
+          unavailable.push({ dashboard, reason: message });
+          continue;
+        }
+        if (reports.length === 0) throw error;
+        return { count: reports.length, reports, unavailable, stopped_early: message };
       }
     }
     return { count: reports.length, reports, unavailable };
@@ -179,6 +196,7 @@ interface ExportOptions {
 
 async function exportOne(context: ToolContext, options: ExportOptions): Promise<object> {
   const { args, reportKey } = options;
+  assertReportPeriod(args, context);
   const file = await context.gateway.download('stats.download', {
     params: {
       date_from: args.date_from as string,
@@ -266,8 +284,9 @@ const exportBatch: ToolDef = {
   name: 'report_export_batch',
   title: 'Export several reports',
   description:
-    'Saves several reports for one period, strictly one after another. A report that fails does ' +
-    'not stop the others, but a block by Booksy stops the batch.',
+    'Saves several reports for one period, strictly one after another, with a pause. A report that ' +
+    'fails does not stop the others. A block by Booksy or a used-up budget ends the batch, and what ' +
+    'was saved until then is listed. In safe mode a batch can have at most 5 reports.',
   input: {
     report_keys: z.array(schema.id('Report key')).min(1).max(30).describe('Report keys'),
     ...period,
@@ -275,8 +294,16 @@ const exportBatch: ToolDef = {
   },
   write: false,
   async handler(args, context) {
+    const keys = args.report_keys as string[];
+    const allowed = context.gateway.traffic.maxExportsPerCall;
+    if (keys.length > allowed) {
+      throw new BooksyError(
+        'safe_mode_limit',
+        `Safe mode exports at most ${allowed} reports in one call. This call has ${keys.length}.`,
+      );
+    }
     const results: object[] = [];
-    for (const reportKey of args.report_keys as string[]) {
+    for (const reportKey of keys) {
       try {
         results.push(
           await exportOne(context, {
@@ -287,8 +314,13 @@ const exportBatch: ToolDef = {
           }),
         );
       } catch (error) {
-        if ((error as { code?: string }).code !== 'booksy_error') throw error;
-        results.push({ report_key: reportKey, error: (error as Error).message });
+        const message = (error as Error).message;
+        if ((error as { code?: string }).code === 'booksy_error') {
+          results.push({ report_key: reportKey, error: message });
+          continue;
+        }
+        if (results.length === 0) throw error;
+        return { results, stopped_early: message };
       }
     }
     return { results };
@@ -360,6 +392,27 @@ const clientFile: ToolDef = {
   },
 };
 
+const frameRequests: ToolDef = {
+  name: 'stats_frame_requests',
+  title: 'Requests of the report screen',
+  description:
+    'A check for live verification. Open the statistics screen in the panel first. Shows which ' +
+    'addresses the report frame asked for by itself: address shapes and parameter names, without ' +
+    'ids, values or headers. Sends nothing to Booksy.',
+  input: {},
+  write: false,
+  async handler(_args, context) {
+    const frames = await context.gateway.frameRequests();
+    return {
+      frames,
+      next:
+        frames.length > 0
+          ? 'Compare these with the rules in docs/verification.md.'
+          : 'No report frame is open. Open the statistics screen in the panel and try again.',
+    };
+  },
+};
+
 export const REPORT_TOOLS: ToolDef[] = [
   statsOverview,
   statsDashboard,
@@ -372,4 +425,5 @@ export const REPORT_TOOLS: ToolDef[] = [
   exportBatch,
   documentDownload,
   clientFile,
+  frameRequests,
 ];

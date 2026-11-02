@@ -5,14 +5,16 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pairing } from './bridge/pairing.js';
 import { BridgeServer } from './bridge/server.js';
-import { loadConfig } from './config.js';
-import { createServer, SERVER_VERSION } from './server.js';
+import { loadConfig, SAFE_MODE_OFF_WARNING } from './config.js';
+import { TrafficLedger } from './gateway/ledger.js';
+import { createServer, ledgerPath, SERVER_VERSION } from './server.js';
 
 const HELP = `booksy-mcp ${SERVER_VERSION}
 
   booksy-mcp                     Start the MCP server on stdio (what MCP clients run).
   booksy-mcp extension [folder]  Copy the browser extension to a folder and print the path.
   booksy-mcp reset-pairing       Forget the paired extension.
+  booksy-mcp reset-cooldown      End a stop after a block. First check the panel works by hand.
   booksy-mcp --version           Print the version.
 `;
 
@@ -38,6 +40,7 @@ async function serve(): Promise<void> {
   await bridge.start();
   const { server } = createServer(bridge, config);
 
+  if (!config.traffic.safeMode) console.error(`booksy-mcp: WARNING. ${SAFE_MODE_OFF_WARNING}`);
   const status = bridge.status();
   if (status.portBusy) {
     console.error(`booksy-mcp: port ${config.port} is busy. Tools will explain how to fix it.`);
@@ -68,6 +71,9 @@ if (command === '--help' || command === '-h') {
 } else if (command === 'reset-pairing') {
   new Pairing(join(loadConfig().configDir, 'bridge-secret')).reset();
   process.stdout.write('Pairing removed. Restart your MCP client to get a new code.\n');
+} else if (command === 'reset-cooldown') {
+  new TrafficLedger(ledgerPath(loadConfig())).clearBlock();
+  process.stdout.write('Cooldown cleared. Use the tools gently, Booksy may still be limiting you.\n');
 } else if (command === undefined) {
   await serve();
 } else {

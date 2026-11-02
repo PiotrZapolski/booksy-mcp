@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Bridge, BridgeCall, BridgeStatus } from '../src/bridge/server.js';
-import { type Config, DEFAULT_EXTENSION_ID } from '../src/config.js';
+import { type Config, DEFAULT_EXTENSION_ID, UNRESTRICTED_TRAFFIC } from '../src/config.js';
 import { SnapshotStore } from '../src/domain/feed.js';
 import { Gateway } from '../src/gateway/gateway.js';
 import type { PanelContext, PanelResult } from '../src/shared/protocol.js';
@@ -59,8 +59,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     configDir: dir,
     exportDir: join(dir, 'exports'),
     stateDir: join(dir, 'state'),
-    minIntervalMs: 1000,
-    maxRequestsPerHour: 1000,
+    traffic: UNRESTRICTED_TRAFFIC,
     maxResultChars: 150_000,
     maskContacts: false,
     writeTools: [],
@@ -76,8 +75,7 @@ export function testContext(
   const config = testConfig();
   return {
     gateway: new Gateway(bridge, {
-      minIntervalMs: 1000,
-      maxRequestsPerHour: 1000,
+      traffic: UNRESTRICTED_TRAFFIC,
       maskContacts: false,
       sleep: async () => undefined,
     }),
