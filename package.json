@@ -1,0 +1,59 @@
+{
+  "name": "booksy-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Booksy Biz that works through your own logged-in browser tab. No session tokens leave the browser.",
+  "license": "MIT",
+  "type": "module",
+  "mcpName": "io.github.PiotrZapolski/booksy-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PiotrZapolski/booksy-mcp.git"
+  },
+  "bin": {
+    "booksy-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "extension/dist",
+    "server.json",
+    "README.md",
+    "LICENSE",
+    "docs/endpoints.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/build-extension.mjs",
+    "build:extension": "node scripts/build-extension.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "prepublishOnly": "npm run check && npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "fflate": "0.8.3",
+    "ws": "8.22.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.7",
+    "@types/node": "22.20.5",
+    "@types/ws": "8.18.2",
+    "esbuild": "0.28.2",
+    "eslint": "10.14.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.0.5"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "booksy",
+    "salon",
+    "barbershop",
+    "chrome-extension"
+  ]
+}

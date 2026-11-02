@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Booksy MCP Bridge</title>
+    <style>
+      body { font: 13px/1.4 system-ui, sans-serif; width: 280px; margin: 0; padding: 12px; }
+      h1 { font-size: 14px; margin: 0 0 8px; }
+      label { display: block; margin-top: 10px; font-weight: 600; }
+      input[type='text'], input[type='number'] { width: 100%; box-sizing: border-box; padding: 6px; margin-top: 4px; }
+      button { margin-top: 10px; padding: 6px 10px; }
+      .check { display: flex; gap: 8px; align-items: flex-start; font-weight: 400; }
+      .note { color: #555; font-size: 12px; margin-top: 4px; }
+      @media (prefers-color-scheme: dark) {
+        body { background: #1f1f1f; color: #eee; }
+        .note { color: #aaa; }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Booksy MCP Bridge</h1>
+    <div id="status" role="status"></div>
+
+    <label for="code">Pairing code</label>
+    <input id="code" type="text" maxlength="8" autocomplete="off" spellcheck="false" />
+    <div class="note">Ask your assistant to run session_status. It shows the code.</div>
+
+    <label for="port">Port</label>
+    <input id="port" type="number" min="1024" max="65535" />
+
+    <button id="pair" type="button">Connect</button>
+    <button id="forget" type="button" hidden>Forget pairing</button>
+
+    <label class="check">
+      <input id="writes" type="checkbox" />
+      <span>Allow writes. The local server must also enable each tool.</span>
+    </label>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
