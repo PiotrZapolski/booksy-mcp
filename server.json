@@ -1,0 +1,51 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.PiotrZapolski/booksy-mcp",
+  "title": "Booksy Biz",
+  "description": "Booksy Biz through your own logged-in browser tab. No session tokens leave the browser.",
+  "repository": {
+    "url": "https://github.com/PiotrZapolski/booksy-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "booksy-mcp",
+      "version": "0.1.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "BOOKSY_MCP_WRITE_TOOLS",
+          "description": "Comma-separated write tools to enable, or \"all\" for those that do not reach clients. Writes are off by default.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "BOOKSY_MCP_DISABLED_TOOLS",
+          "description": "Comma-separated tools to turn off.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "BOOKSY_MCP_PORT",
+          "description": "Local port for the browser extension. Default 47821.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "name": "BOOKSY_MCP_EXPORT_DIR",
+          "description": "Folder for exported reports. Default ~/BooksyExports.",
+          "isRequired": false,
+          "format": "filepath"
+        },
+        {
+          "name": "BOOKSY_MCP_MASK_CONTACTS",
+          "description": "Set to 1 to mask client phone numbers and e-mails in tool output.",
+          "isRequired": false,
+          "format": "boolean"
+        }
+      ]
+    }
+  ]
+}
