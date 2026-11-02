@@ -1,20 +1,22 @@
 import { z } from 'zod';
-import { mergeBookings, type RawBooking, toVisits } from '../domain/bookings.js';
+import {
+  calendarTimeOffs,
+  mergeBookings,
+  type RawBooking,
+  recordList,
+  reservationsAsBookings,
+  toVisits,
+} from '../domain/bookings.js';
 import { diffVisits, type Snapshot } from '../domain/feed.js';
-import { openSlots, type ScheduleResource } from '../domain/slots.js';
+import { flattenResource, joinResourceWeeks, openSlots, type ScheduleResource } from '../domain/slots.js';
 import { addDays, splitRange, today, weekStarts } from '../domain/windows.js';
 import { BooksyError } from '../errors.js';
 import { schema, type Args, type ToolContext, type ToolDef } from './define.js';
 
-interface CalendarPayload {
-  bookings?: RawBooking[];
-  [key: string]: unknown;
-}
-
 interface ShiftsPayload {
   schedule?: {
     business?: { schedule?: Array<{ date?: string }> } & Record<string, unknown>;
-    resources?: ScheduleResource[];
+    resources?: unknown[];
     time_off_reasons?: unknown;
   };
 }
@@ -25,10 +27,16 @@ export async function readCalendar(
   from: string,
   to: string,
   fresh = false,
-): Promise<{ bookings: RawBooking[]; windows: number; timeOffs: unknown[] }> {
+): Promise<{
+  bookings: RawBooking[];
+  reservations: RawBooking[];
+  windows: number;
+  timeOffs: unknown[];
+}> {
   context.gateway.assertRange(from, to);
   const windows = splitRange(from, to, context.gateway.traffic.windowDays);
   const batches: RawBooking[][] = [];
+  const reservationBatches: RawBooking[][] = [];
   const timeOffs: unknown[] = [];
   let pause = false;
   for (const window of windows) {
@@ -44,12 +52,17 @@ export async function readCalendar(
       fresh,
     });
     pause = !response.fromCache;
-    const payload = response.data as CalendarPayload;
-    batches.push(payload.bookings ?? []);
-    const resources = payload.resources as { time_offs?: unknown[] } | undefined;
-    if (Array.isArray(resources?.time_offs)) timeOffs.push(...resources.time_offs);
+    const payload = response.data as Record<string, unknown>;
+    batches.push(recordList(payload.bookings));
+    reservationBatches.push(recordList(payload.reservations));
+    timeOffs.push(...calendarTimeOffs(payload.resources));
   }
-  return { bookings: mergeBookings(batches), windows: windows.length, timeOffs };
+  return {
+    bookings: mergeBookings(batches),
+    reservations: mergeBookings(reservationBatches),
+    windows: windows.length,
+    timeOffs,
+  };
 }
 
 export async function readShifts(
@@ -60,7 +73,7 @@ export async function readShifts(
 ): Promise<{ business: unknown[]; resources: ScheduleResource[]; reasons: unknown }> {
   context.gateway.assertRange(from, to);
   const business: Array<{ date?: string }> = [];
-  const resources = new Map<string, ScheduleResource>();
+  const weeks: ScheduleResource[][] = [];
   let reasons: unknown = null;
 
   let pause = false;
@@ -74,19 +87,14 @@ export async function readShifts(
     const schedule = (response.data as ShiftsPayload).schedule;
     business.push(...(schedule?.business?.schedule ?? []));
     reasons = schedule?.time_off_reasons ?? reasons;
-    for (const resource of schedule?.resources ?? []) {
-      const id = String(resource.id);
-      const known = resources.get(id);
-      if (known) known.schedule = [...(known.schedule ?? []), ...(resource.schedule ?? [])];
-      else resources.set(id, { ...resource, schedule: [...(resource.schedule ?? [])] });
-    }
+    weeks.push((schedule?.resources ?? []).map(flattenResource));
   }
 
   const inRange = <T extends { date?: string }>(days: T[]): T[] =>
     days.filter((day) => !day.date || (day.date >= from && day.date <= to));
   return {
     business: inRange(business),
-    resources: [...resources.values()].map((resource) => ({
+    resources: joinResourceWeeks(weeks).map((resource) => ({
       ...resource,
       schedule: inRange(resource.schedule ?? []),
     })),
@@ -140,7 +148,7 @@ const calendarAgenda: ToolDef = {
   name: 'calendar_agenda',
   title: 'Calendar agenda',
   description:
-    'Appointments between two dates. Long ranges are split into windows and read one after another ' +
+    'Appointments, reserved time and time off between two dates. Long ranges are split into windows and read one after another ' +
     'with a pause. In safe mode a range can have at most 92 days. Filter by staff or by status (A accepted, W waiting for confirmation, ' +
     'C canceled, D declined, F finished, N no-show, M modified, O prepayment awaiting, P proposed, ' +
     'R rejected, V unverified).',
@@ -153,7 +161,7 @@ const calendarAgenda: ToolDef = {
   },
   write: false,
   async handler(args, context) {
-    const { bookings, windows, timeOffs } = await readCalendar(
+    const { bookings, reservations, windows, timeOffs } = await readCalendar(
       context,
       args.from as string,
       args.to as string,
@@ -166,7 +174,13 @@ const calendarAgenda: ToolDef = {
       if (statuses && !statuses.includes(visit?.status ?? '')) return false;
       return !staffId || (visit?.staffIds.includes(staffId) ?? false);
     });
-    return { count: filtered.length, windows_read: windows, bookings: filtered, time_offs: timeOffs };
+    return {
+      count: filtered.length,
+      windows_read: windows,
+      bookings: filtered,
+      reservations,
+      time_offs: timeOffs,
+    };
   },
 };
 
@@ -206,7 +220,7 @@ const slots: ToolDef = {
     const date = args.date as string;
     const fresh = args.fresh === true;
     const shifts = await readShifts(context, date, date, fresh);
-    const { bookings } = await readCalendar(context, date, date, fresh);
+    const { bookings, reservations } = await readCalendar(context, date, date, fresh);
     const staffId = args.staff_id as string | undefined;
     return {
       date,
@@ -215,7 +229,7 @@ const slots: ToolDef = {
         durationMinutes: args.duration_minutes as number,
         stepMinutes: args.step_minutes as number,
         resources: shifts.resources,
-        bookings,
+        bookings: [...bookings, ...reservationsAsBookings(reservations)],
         ...(staffId ? { resourceId: staffId } : {}),
       }),
     };

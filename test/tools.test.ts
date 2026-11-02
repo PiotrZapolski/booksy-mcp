@@ -10,7 +10,7 @@ import { Gateway } from '../src/gateway/gateway.js';
 import { ALL_TOOLS, selectTools } from '../src/tools/index.js';
 import type { BridgeCall } from '../src/bridge/server.js';
 import { FakeBridge, testConfig, testContext } from './helpers.js';
-import { sampleWorkbook } from './exports.test.js';
+import { reportWorkbook, sampleWorkbook } from './exports.test.js';
 
 const tool = (name: string) => {
   const found = ALL_TOOLS.find((candidate) => candidate.name === name);
@@ -360,7 +360,144 @@ describe('calendar_agenda', () => {
   });
 });
 
+describe('calendar_agenda with the panel answer', () => {
+  const answer = {
+    ok: true,
+    data: {
+      agenda: {},
+      bookings: {
+        '11': {
+          appointment_uid: 'A1',
+          status: 'A',
+          booked_from: '2026-11-02T10:00',
+          booked_till: '2026-11-02T11:00',
+          resources: [{ id: 5, type: 'S' }],
+        },
+        '12': { $meta: { status: 'C' }, booked_from: '2026-11-02T12:00', resources: [{ id: 6 }] },
+      },
+      reservations: {
+        '21': {
+          reserved_from: '2026-11-02T11:00',
+          reserved_till: '2026-11-02T12:00',
+          resources: [{ id: 5 }],
+        },
+      },
+      resources: [
+        {
+          id: 5,
+          type: 'S',
+          bookings: { '2026-11-02': [11] },
+          reservations: { '2026-11-02': [21] },
+          working_hours: { '2026-11-02': [{ hour_from: '09:00', hour_till: '17:00' }] },
+          time_offs: { '2026-11-02': [{ id: 31, hour_from: '15:00', hour_till: '16:00' }] },
+        },
+      ],
+    },
+  };
+
+  it('reads bookings, reservations and time off keyed by id and date', async () => {
+    const result = (await tool('calendar_agenda').handler(
+      { from: '2026-11-02', to: '2026-11-02' },
+      testContext(new FakeBridge(() => answer)),
+    )) as {
+      count: number;
+      bookings: Array<{ id: string }>;
+      reservations: unknown[];
+      time_offs: unknown[];
+    };
+    expect(result.count).toBe(2);
+    expect(result.bookings.map((booking) => booking.id)).toEqual(['11', '12']);
+    expect(result.reservations).toHaveLength(1);
+    expect(result.time_offs).toEqual([
+      { resource_id: 5, date: '2026-11-02', id: 31, hour_from: '15:00', hour_till: '16:00' },
+    ]);
+  });
+
+  it('filters by status and staff on that answer', async () => {
+    const result = (await tool('calendar_agenda').handler(
+      { from: '2026-11-02', to: '2026-11-02', status: ['C'], staff_id: '6' },
+      testContext(new FakeBridge(() => answer)),
+    )) as { bookings: Array<{ id: string }> };
+    expect(result.bookings.map((booking) => booking.id)).toEqual(['12']);
+  });
+
+  it('survives an answer without bookings', async () => {
+    const result = (await tool('calendar_agenda').handler(
+      { from: '2026-11-02', to: '2026-11-02' },
+      testContext(new FakeBridge(() => ({ ok: true, data: { bookings: null, resources: [] } }))),
+    )) as { count: number };
+    expect(result.count).toBe(0);
+  });
+
+  it('keeps reserved time out of open slots', async () => {
+    const shifts = {
+      schedule: {
+        business: { schedule: [] },
+        resources: [
+          {
+            resource: { id: 5, name: 'Staff A' },
+            schedule: [{ date: '2026-11-02', hours: [{ hour_from: '10:00', hour_till: '13:00' }], time_offs: [] }],
+          },
+        ],
+      },
+    };
+    const bridge = new FakeBridge((call) =>
+      call.type === 'call' && call.request.ruleId === 'shifts.week' ? { ok: true, data: shifts } : answer,
+    );
+    const result = (await tool('calendar_open_slots').handler(
+      { date: '2026-11-02', duration_minutes: 30, step_minutes: 30 },
+      testContext(bridge),
+    )) as { slots: Array<{ resource_id: string; from: string; till: string }> };
+    expect(result.slots).toMatchObject([{ resource_id: '5', from: '12:00', till: '13:00' }]);
+  });
+});
+
 describe('staff_schedule', () => {
+  it('keeps each staff member apart in the panel answer, over two weeks', async () => {
+    const staff = [
+      { id: 1, name: 'Staff A', type: 'S' },
+      { id: 2, name: 'Staff B', type: 'S' },
+      { id: 3, name: 'Staff C', type: 'S' },
+    ];
+    const bridge = new FakeBridge((call) => {
+      const week = (call as unknown as { request: { params: { week_start_date: string } } }).request.params.week_start_date;
+      const days = [0, 1, 2, 3, 4, 5, 6].map((offset) => ({
+        date: new Date(Date.parse(`${week}T00:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10),
+        hours: [{ hour_from: '09:00', hour_till: '17:00' }],
+        time_offs: [],
+      }));
+      return {
+        ok: true,
+        data: {
+          schedule: {
+            business: { schedule: days },
+            resources: staff.map((resource) => ({
+              resource,
+              schedule: days,
+              week_work_duration: 2400,
+              hours_apply_from: null,
+            })),
+          },
+        },
+      };
+    });
+
+    const week = (await tool('staff_schedule').handler(
+      { from: '2026-11-02', to: '2026-11-08' },
+      testContext(bridge),
+    )) as { resources: Array<{ id: number; name: string; schedule: unknown[]; week_work_duration?: number }> };
+    expect(week.resources.map((resource) => resource.name)).toEqual(['Staff A', 'Staff B', 'Staff C']);
+    expect(week.resources.map((resource) => resource.schedule.length)).toEqual([7, 7, 7]);
+    expect(week.resources[0]?.week_work_duration).toBe(2400);
+
+    const two = (await tool('staff_schedule').handler(
+      { from: '2026-11-02', to: '2026-11-15' },
+      testContext(bridge),
+    )) as { resources: Array<{ schedule: unknown[]; week_work_duration?: number }> };
+    expect(two.resources.map((resource) => resource.schedule.length)).toEqual([14, 14, 14]);
+    expect(two.resources[0]).not.toHaveProperty('week_work_duration');
+  });
+
   it('joins weeks and trims to the range', async () => {
     const bridge = new FakeBridge((call) => {
       const week = (call as unknown as { request: { params: { week_start_date: string } } }).request.params.week_start_date;
@@ -431,6 +568,21 @@ describe('report_export', () => {
       sheets: Array<{ rows: Array<Record<string, string>> }>;
     };
     expect(result.sheets[0]?.rows[0]).toMatchObject({ Klient: 'Sample <Client>' });
+  });
+
+  it('masks contacts in JSON rows when redaction is on, and leaves the file alone', async () => {
+    const context = testContext(
+      new FakeBridge(() => ({ ...download(), base64: Buffer.from(reportWorkbook()).toString('base64') })),
+    );
+    context.config.redactPii = true;
+    const result = (await tool('report_export').handler({ ...args, output: 'json' }, context)) as {
+      file: string;
+      sheets: Array<{ rows: Array<Record<string, string>>; totals: Record<string, string> }>;
+    };
+    expect(JSON.stringify(result.sheets)).not.toContain('client@example.com');
+    expect(result.sheets[0]?.rows[0]?.Telefon).toBe('50***00');
+    expect(result.sheets[0]?.totals['Kwota']).toBe('139.63');
+    expect(readWorkbook(readFileSync(result.file))[0]?.rows.flat()).toContain('client@example.com');
   });
 
   it('converts to CSV next to the file', async () => {
@@ -526,7 +678,7 @@ describe('session_status traffic', () => {
     const bridge = new FakeBridge(() => ({ ok: false, status: 429 }));
     const gateway = new Gateway(bridge, {
       traffic: SAFE_TRAFFIC,
-      maskContacts: false,
+      redactPii: false,
       sleep: async () => undefined,
     });
     await expect(gateway.request('reviews.list')).rejects.toBeTruthy();
@@ -549,7 +701,7 @@ describe('safe mode in tools', () => {
     const pauses: number[] = [];
     const gateway = new Gateway(bridge, {
       traffic: { ...SAFE_TRAFFIC, minIntervalMs: 0, ...traffic },
-      maskContacts: false,
+      redactPii: false,
       random: () => 0,
       sleep: async (ms) => {
         pauses.push(ms);
