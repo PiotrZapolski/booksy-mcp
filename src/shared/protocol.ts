@@ -11,8 +11,6 @@ export interface PanelRequest {
   data?: unknown;
   binary?: boolean;
   timeoutMs?: number;
-  /** Refuse the call when the panel tab or the computer has been unused for longer than this. */
-  maxBackgroundMs?: number;
 }
 
 export type QueryValue = string | number | boolean | Array<string | number>;
@@ -36,7 +34,6 @@ export type PanelFailure =
   | 'tab_discarded'
   | 'rule_rejected'
   | 'writes_disabled_in_extension'
-  | 'panel_in_background'
   | 'chat_failed';
 
 export interface PanelResult {
@@ -59,7 +56,6 @@ export type ChatAction =
 export interface ChatRequest {
   chat: ChatAction;
   timeoutMs?: number;
-  maxBackgroundMs?: number;
 }
 
 /** What a frame asked for by itself: address shapes only, no ids, no parameter values, no headers. */
@@ -75,6 +71,27 @@ export type ClientMessage =
   | { type: 'result'; id: string; result: PanelResult }
   | { type: 'ping' };
 
+/**
+ * A second booksy-mcp process (a scheduled job) that found the port taken. It proves the same
+ * shared secret and asks the process holding the port to pass its calls to the extension.
+ */
+export type RelayMessage =
+  | { type: 'relay'; protocol: number; clientNonce: string; proof: string }
+  | { type: 'relay_call'; id: string; call: RelayCall; timeoutMs: number };
+
+/** What a relay may ask for: the same calls the bridge itself makes. */
+export type RelayCall =
+  | { type: 'call'; request: PanelRequest }
+  | { type: 'chat'; request: ChatRequest }
+  | { type: 'context' }
+  | { type: 'frames' }
+  | { type: 'open_panel' }
+  | { type: 'close_panel'; tabId: number };
+
+export type RelayReply =
+  | { type: 'relay_result'; id: string; result: PanelResult }
+  | { type: 'relay_error'; id: string; code: string; message: string };
+
 /** Server to extension. */
 export type ServerMessage =
   | { type: 'challenge'; serverNonce: string }
@@ -85,7 +102,13 @@ export type ServerMessage =
   | { type: 'chat'; id: string; request: ChatRequest }
   | { type: 'context'; id: string }
   | { type: 'frames'; id: string }
+  | { type: 'open_panel'; id: string; url: string }
+  | { type: 'close_panel'; id: string; tabId: number }
   | { type: 'pong' };
 
 export const PROOF_CLIENT = 'booksy-mcp/client';
 export const PROOF_SERVER = 'booksy-mcp/server';
+export const PROOF_RELAY = 'booksy-mcp/relay';
+
+/** The only page the extension opens by itself, and only when a job asks with --open-panel. */
+export const PANEL_HOME = 'https://booksy.com/pro/';

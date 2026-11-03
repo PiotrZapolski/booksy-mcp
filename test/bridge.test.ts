@@ -3,8 +3,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { CODE_TTL_MS, MAX_ATTEMPTS, Pairing, proof } from '../src/bridge/pairing.js';
+import { RelayBridge } from '../src/bridge/relay.js';
 import { BridgeServer, isAllowedHost, isAllowedOrigin } from '../src/bridge/server.js';
-import { PROOF_CLIENT, PROOF_SERVER, PROTOCOL_VERSION } from '../src/shared/protocol.js';
+import { PANEL_HOME, PROOF_CLIENT, PROOF_SERVER, PROTOCOL_VERSION } from '../src/shared/protocol.js';
 import { tempDir } from './helpers.js';
 
 const EXT = 'abcdefghijklmnopabcdefghijklmnop';
@@ -248,5 +249,95 @@ describe('calls', () => {
     await expect(second.call({ type: 'context' }, 100)).rejects.toMatchObject({
       code: 'bridge_port_busy',
     });
+  });
+});
+
+describe('relay', () => {
+  async function extensionOn(port: number, code: string) {
+    const paired = await pair(port, code);
+    paired.ws.on('message', (raw) => {
+      const message = JSON.parse(raw.toString());
+      if (message.type === 'context' || message.type === 'open_panel') {
+        paired.ws.send(
+          JSON.stringify({
+            type: 'result',
+            id: message.id,
+            result: { ok: true, data: { seen: message.type, url: message.url ?? null } },
+          }),
+        );
+      }
+    });
+    return paired.ws;
+  }
+
+  it('passes the calls of a second process to the extension', async () => {
+    const { bridge, pairing, port } = await startBridge();
+    const ws = await extensionOn(port, bridge.status().pairingCode as string);
+    const relay = new RelayBridge({ port }, pairing);
+    await relay.connect();
+    await expect(relay.call({ type: 'context' }, 1000)).resolves.toEqual({
+      ok: true,
+      data: { seen: 'context', url: null },
+    });
+    await expect(relay.call({ type: 'open_panel' }, 1000)).resolves.toMatchObject({
+      data: { seen: 'open_panel', url: PANEL_HOME },
+    });
+    expect(bridge.status().connected).toBe(true);
+    await relay.stop();
+    ws.close();
+  });
+
+  it('refuses a relay without the pairing secret', async () => {
+    const { bridge, port } = await startBridge();
+    (await pair(port, bridge.status().pairingCode as string)).ws.close();
+    const stranger = new Pairing(join(tempDir(), 'secret'));
+    (stranger as unknown as { secret: () => string }).secret = () => 'ab'.repeat(32);
+    await expect(new RelayBridge({ port }, stranger).connect()).rejects.toMatchObject({
+      code: 'bridge_port_busy',
+    });
+  });
+
+  it('does not let a client without an origin pair or act as the extension', async () => {
+    const { bridge, port } = await startBridge();
+    const ws = connect(port, {});
+    await nextMessage(ws);
+    ws.send(
+      JSON.stringify({
+        type: 'pair',
+        protocol: PROTOCOL_VERSION,
+        code: bridge.status().pairingCode,
+        clientNonce: 'aa',
+      }),
+    );
+    expect(await nextMessage(ws)).toMatchObject({ type: 'rejected' });
+    expect(bridge.status().paired).toBe(false);
+  });
+
+  it('keeps calls one at a time across the server and a relay', async () => {
+    const { bridge, pairing, port } = await startBridge();
+    const paired = await pair(port, bridge.status().pairingCode as string);
+    let running = 0;
+    let peak = 0;
+    paired.ws.on('message', (raw) => {
+      const message = JSON.parse(raw.toString());
+      if (message.type !== 'context') return;
+      running += 1;
+      peak = Math.max(peak, running);
+      setTimeout(() => {
+        running -= 1;
+        paired.ws.send(JSON.stringify({ type: 'result', id: message.id, result: { ok: true } }));
+      }, 20);
+    });
+    const relay = new RelayBridge({ port }, pairing);
+    await relay.connect();
+    await Promise.all([
+      bridge.call({ type: 'context' }, 1000),
+      relay.call({ type: 'context' }, 1000),
+      bridge.call({ type: 'context' }, 1000),
+      relay.call({ type: 'context' }, 1000),
+    ]);
+    expect(peak).toBe(1);
+    await relay.stop();
+    paired.ws.close();
   });
 });

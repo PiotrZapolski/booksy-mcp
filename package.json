@@ -1,6 +1,6 @@
 {
   "name": "booksy-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for Booksy Biz that works through your own logged-in browser tab. No session tokens leave the browser.",
   "license": "MIT",
   "type": "module",

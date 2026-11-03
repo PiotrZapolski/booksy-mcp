@@ -34,6 +34,16 @@ Serwer [MCP](https://modelcontextprotocol.io) dla **Booksy Biz**. Twój asystent
 
 Po zbudowaniu projektu (`npm ci && npm run build`) uruchom `node dist/index.js setup`. Opcje: `--client claude-code|codex|claude-desktop|all`, `--dry-run` (tylko pokaż), `--uninstall` (usuń). Szczegółowe kroki znajdziesz w [INSTALL.md](INSTALL.md).
 
+## Zadania zaplanowane
+
+`booksy-mcp job` pobiera stałą listę raportów i grafik bez klienta MCP i bez modelu językowego, np. co
+wieczór z launchd. Działa przez to samo rozszerzenie i ten sam tryb bezpieczny co narzędzia (odstępy,
+budżety, stop po 403/429/captcha). Gdy klient MCP już trzyma port, job łączy się z nim jako przekaźnik
+i nie przeszkadza mu. `--open-panel` otwiera kartę panelu w tle tylko wtedy, gdy żadnej nie ma, i
+zamyka ją na końcu. `--jitter <sekundy>` losowo opóźnia start. Kody wyjścia: 0 komplet, 1 częściowo,
+2 nic, 3 brak rozszerzenia lub panelu, 4 przerwa po blokadzie. Opis opcji: sekcja
+[Scheduled jobs](README.md#scheduled-jobs).
+
 ## Gdy coś nie działa
 
 - Klient nie widzi narzędzi `booksy`: zrestartuj klienta (w Claude Code `/mcp` i połącz ponownie).

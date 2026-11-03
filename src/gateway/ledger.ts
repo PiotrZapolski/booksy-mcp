@@ -36,6 +36,7 @@ export class TrafficLedger {
   }
 
   record(kind: 'requests' | 'exports', weight = 1): void {
+    this.refresh();
     const time = this.now();
     this.trim();
     for (let i = 0; i < weight; i += 1) this.data[kind].push(time);
@@ -43,11 +44,13 @@ export class TrafficLedger {
   }
 
   count(kind: 'requests' | 'exports', withinMs: number): number {
+    this.refresh();
     const cutoff = this.now() - withinMs;
     return this.data[kind].filter((time) => time > cutoff).length;
   }
 
   block(until: number, reason: string): void {
+    this.refresh();
     this.data.blockedUntil = until;
     this.data.blockReason = reason;
     this.save();
@@ -70,6 +73,15 @@ export class TrafficLedger {
     this.data.blockedUntil = 0;
     this.data.blockReason = null;
     this.save();
+  }
+
+  /**
+   * A scheduled job and an MCP server can run at the same time and share this file. Each change
+   * starts from what is on disk, so neither one wipes out what the other has counted.
+   */
+  private refresh(): void {
+    const stored = this.read();
+    if (stored) this.data = stored;
   }
 
   private trim(): void {

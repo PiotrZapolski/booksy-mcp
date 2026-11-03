@@ -10,7 +10,6 @@ export type ErrorCode =
   | 'blocked_by_booksy'
   | 'budget_exhausted'
   | 'safe_mode_limit'
-  | 'panel_in_background'
   | 'booksy_error'
   | 'request_failed'
   | 'rule_rejected'
@@ -19,7 +18,8 @@ export type ErrorCode =
   | 'invalid_confirmation'
   | 'declined_by_user'
   | 'invalid_input'
-  | 'chat_failed';
+  | 'chat_failed'
+  | 'extension_outdated';
 
 /** An error whose message is written for the person using the tool, including what to do next. */
 export class BooksyError extends Error {

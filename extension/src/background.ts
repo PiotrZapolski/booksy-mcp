@@ -7,6 +7,7 @@ import {
   type ChatRequest,
   type PanelRequest,
   type PanelResult,
+  PANEL_HOME,
   PING_INTERVAL_MS,
   PROOF_CLIENT,
   PROOF_SERVER,
@@ -14,7 +15,6 @@ import {
   type ServerMessage,
 } from '../../src/shared/protocol.js';
 import { hmacHex, randomHex } from './crypto.js';
-import { unattended } from './guard.js';
 import { pageCall, pageChat, pageContext, pageFrameRequests } from './page.js';
 
 const DEFAULT_PORT = 47821;
@@ -131,6 +131,8 @@ async function connect(): Promise<void> {
     if (message.type === 'chat') return reply(ws, message.id, handleChat(message.request));
     if (message.type === 'context') return reply(ws, message.id, handleContext());
     if (message.type === 'frames') return reply(ws, message.id, handleFrames());
+    if (message.type === 'open_panel') return reply(ws, message.id, handleOpenPanel());
+    if (message.type === 'close_panel') return reply(ws, message.id, handleClosePanel(message.tabId));
   };
 
   ws.onopen = () => {
@@ -176,35 +178,13 @@ function isFailure(value: chrome.tabs.Tab | PanelResult): value is PanelResult {
   return 'ok' in value;
 }
 
-async function isUnattended(tab: chrome.tabs.Tab, maxBackgroundMs: number): Promise<boolean> {
-  const seconds = Math.max(15, Math.ceil(maxBackgroundMs / 1000));
-  const [window, computer] = await Promise.all([
-    chrome.windows.get(tab.windowId),
-    chrome.idle.queryState(seconds),
-  ]);
-  return unattended(
-    {
-      active: tab.active,
-      minimized: window.state === 'minimized',
-      lastAccessed: tab.lastAccessed,
-      computer,
-      now: Date.now(),
-    },
-    maxBackgroundMs,
-  );
-}
-
 async function runInTab<A extends unknown[]>(
   func: (...args: A) => PanelResult | Promise<PanelResult>,
   args: A,
-  maxBackgroundMs?: number,
 ): Promise<PanelResult> {
   const tab = await panelTab();
   if (isFailure(tab)) return tab;
   if (tab.id === undefined) return { ok: false, failure: 'tab_missing' };
-  if (maxBackgroundMs !== undefined && (await isUnattended(tab, maxBackgroundMs))) {
-    return { ok: false, failure: 'panel_in_background' };
-  }
   const [frame] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     world: 'MAIN',
@@ -230,7 +210,7 @@ async function handleCall(request: PanelRequest): Promise<PanelResult> {
     if (!allowWrites) return { ok: false, failure: 'writes_disabled_in_extension' };
   }
   const call = { method: rule.method, path: rule.path, request };
-  return runInTab(pageCall, [call], request.maxBackgroundMs);
+  return runInTab(pageCall, [call]);
 }
 
 async function handleChat(request: ChatRequest): Promise<PanelResult> {
@@ -238,7 +218,7 @@ async function handleChat(request: ChatRequest): Promise<PanelResult> {
     const { allowWrites } = await loadSettings();
     if (!allowWrites) return { ok: false, failure: 'writes_disabled_in_extension' };
   }
-  return runInTab(pageChat, [request.chat, CHAT_BASE], request.maxBackgroundMs);
+  return runInTab(pageChat, [request.chat, CHAT_BASE]);
 }
 
 /**
@@ -255,6 +235,48 @@ async function handleFrames(): Promise<PanelResult> {
     func: pageFrameRequests,
   });
   return { ok: true, data: results.flatMap((entry) => entry.result ?? []) };
+}
+
+const OWNED_TABS = 'ownedTabs';
+
+async function ownedTabs(): Promise<number[]> {
+  const stored = await chrome.storage.session.get(OWNED_TABS);
+  const value: unknown = stored[OWNED_TABS];
+  return Array.isArray(value) ? value.filter((id): id is number => typeof id === 'number') : [];
+}
+
+/**
+ * Opens the panel in a new background tab of an existing window, only when no panel tab is open.
+ * Asked for by a scheduled job with --open-panel. The address is fixed here, never taken from the
+ * server, and the tab is remembered so that only this tab can be closed again.
+ */
+async function handleOpenPanel(): Promise<PanelResult> {
+  const found = await panelTab();
+  if (!isFailure(found)) return { ok: true, data: { tabId: found.id ?? null, opened: false } };
+  const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
+  const target = windows.find((entry) => entry.focused) ?? windows[0];
+  let tab: chrome.tabs.Tab | undefined;
+  if (target?.id !== undefined) {
+    tab = await chrome.tabs.create({ windowId: target.id, url: PANEL_HOME, active: false });
+  } else {
+    const created = await chrome.windows.create({ url: PANEL_HOME, focused: false, state: 'minimized' });
+    tab = created?.tabs?.[0];
+  }
+  if (tab?.id === undefined) return { ok: false, failure: 'tab_missing' };
+  await chrome.storage.session.set({ [OWNED_TABS]: [...(await ownedTabs()), tab.id] });
+  return { ok: true, data: { tabId: tab.id, opened: true } };
+}
+
+async function handleClosePanel(tabId: number): Promise<PanelResult> {
+  const owned = await ownedTabs();
+  if (!owned.includes(tabId)) return { ok: true, data: { closed: false } };
+  await chrome.storage.session.set({ [OWNED_TABS]: owned.filter((id) => id !== tabId) });
+  try {
+    await chrome.tabs.remove(tabId);
+  } catch {
+    // Already closed by the user.
+  }
+  return { ok: true, data: { closed: true } };
 }
 
 chrome.runtime.onInstalled.addListener(() => {
