@@ -137,10 +137,7 @@ Do not enable any write tool for this step. Leave "Allow writes" off in the exte
    `team_resources`, `calendar_agenda` for today, `staff_schedule` for this week, `stats_overview`,
    `stats_report_catalog` for one section, `report_export` for one report.
 5. Compare one day of `calendar_agenda` and one report with what the panel shows.
-6. Check safe mode: `session_status` shows `mode: safe` and growing use of the budget. Leave the tab
-   in the background for over 20 minutes and confirm that a tool answers `panel_in_background`, then
-   the same with the Chrome window minimized and with the computer locked. In a minimized window,
-   check that `lastAccessed` of the tab behaves: if it stays old, the tool stops early, which is safe.
+6. Check safe mode: `session_status` shows `mode: safe` and growing use of the budget.
 
 ## Step 4: before enabling any write
 

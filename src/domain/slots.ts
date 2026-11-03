@@ -81,6 +81,39 @@ function bookingMinutes(start: string, end: string | null, date: string): Range 
   return till === null ? null : { from, till };
 }
 
+export interface DayMinutes {
+  /** Length of the shifts. */
+  scheduled: number;
+  /** Part of the shifts covered by time off. */
+  timeOff: number;
+  /** Shifts minus time off. */
+  work: number;
+}
+
+/** Working minutes of one schedule day: shifts minus the time off that falls inside them. */
+export function dayMinutes(day: ScheduleDay | undefined): DayMinutes {
+  const shifts: Range[] = (day?.hours ?? []).flatMap((hours) => {
+    const from = minutes(hours.hour_from);
+    const till = minutes(hours.hour_till);
+    return from !== null && till !== null && till > from ? [{ from, till }] : [];
+  });
+  const length = (ranges: Range[]): number =>
+    ranges.reduce((sum, range) => sum + range.till - range.from, 0);
+  const scheduled = length(shifts);
+  let free = shifts;
+  for (const off of day?.time_offs ?? []) {
+    if (off.all_day) {
+      free = [];
+      break;
+    }
+    const from = minutes(off.hour_from);
+    const till = minutes(off.hour_till);
+    if (from !== null && till !== null) free = subtract(free, { from, till });
+  }
+  const work = length(free);
+  return { scheduled, timeOff: scheduled - work, work };
+}
+
 /**
  * Free time of each resource on one date: working hours minus time off minus bookings. Computed
  * locally, so finding slots sends nothing extra to Booksy.

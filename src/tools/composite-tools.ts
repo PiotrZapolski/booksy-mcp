@@ -66,7 +66,7 @@ export async function readCalendar(
 }
 
 export async function readShifts(
-  context: ToolContext,
+  context: Pick<ToolContext, 'gateway'>,
   from: string,
   to: string,
   fresh = false,

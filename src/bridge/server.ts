@@ -3,13 +3,16 @@ import type { IncomingMessage } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { BooksyError } from '../errors.js';
 import {
-  type ChatRequest,
   type ClientMessage,
-  type PanelRequest,
+  PANEL_HOME,
   type PanelResult,
   PROOF_CLIENT,
+  PROOF_RELAY,
   PROOF_SERVER,
   PROTOCOL_VERSION,
+  type RelayCall,
+  type RelayMessage,
+  type RelayReply,
   type ServerMessage,
 } from '../shared/protocol.js';
 import { type Pairing, proof, safeEqual } from './pairing.js';
@@ -18,14 +21,13 @@ const AUTH_TIMEOUT_MS = 10_000;
 const MAX_FRAME_BYTES = 64 * 1024 * 1024;
 const MAX_PENDING_SOCKETS = 3;
 const RESPONSE_MARGIN_MS = 5_000;
+/** Longest call a relay may ask for. An export is the slowest call, at a few minutes. */
+const MAX_RELAY_TIMEOUT_MS = 10 * 60 * 1000;
+const RELAY_CALLS = new Set(['call', 'chat', 'context', 'frames', 'open_panel', 'close_panel']);
 /** How long a call waits for the extension to (re)connect before it gives up. */
 export const DEFAULT_CONNECT_WAIT_MS = 12_000;
 
-export type BridgeCall =
-  | { type: 'call'; request: PanelRequest }
-  | { type: 'chat'; request: ChatRequest }
-  | { type: 'context' }
-  | { type: 'frames' };
+export type BridgeCall = RelayCall;
 
 export interface Bridge {
   call(message: BridgeCall, timeoutMs: number): Promise<PanelResult>;
@@ -62,6 +64,8 @@ export class BridgeServer implements Bridge {
   private unauthenticated = 0;
   private readonly pending = new Map<string, Pending>();
   private readonly connectWaiters = new Set<() => void>();
+  /** Calls go to the extension one at a time, also when a relay sends some of them. */
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly options: { port: number; extensionIds: string[]; connectWaitMs?: number },
@@ -77,9 +81,12 @@ export class BridgeServer implements Bridge {
         maxPayload: MAX_FRAME_BYTES,
         perMessageDeflate: false,
         verifyClient: ({ req }: { req: IncomingMessage }, done) => {
+          // A browser always sends an Origin. Only the extension's origin is let in, and a local
+          // process without an Origin may only authenticate as a relay.
+          const origin = req.headers.origin;
           const allowed =
             isAllowedHost(req.headers.host, this.port()) &&
-            isAllowedOrigin(req.headers.origin, this.options.extensionIds) &&
+            (origin === undefined || isAllowedOrigin(origin, this.options.extensionIds)) &&
             this.unauthenticated < MAX_PENDING_SOCKETS;
           done(allowed, 403, 'Forbidden');
         },
@@ -93,7 +100,7 @@ export class BridgeServer implements Bridge {
         this.portBusy = error.code === 'EADDRINUSE';
         resolve();
       });
-      server.on('connection', (socket) => this.accept(socket));
+      server.on('connection', (socket, req) => this.accept(socket, req.headers.origin === undefined));
     });
   }
 
@@ -123,9 +130,19 @@ export class BridgeServer implements Bridge {
     };
   }
 
-  async call(message: BridgeCall, timeoutMs: number): Promise<PanelResult> {
+  call(message: BridgeCall, timeoutMs: number): Promise<PanelResult> {
+    const run = (): Promise<PanelResult> => this.callNow(message, timeoutMs);
+    const result = this.queue.then(run, run);
+    this.queue = result.catch(() => undefined);
+    return result;
+  }
+
+  private async callNow(message: BridgeCall, timeoutMs: number): Promise<PanelResult> {
     const socket = await this.connectedSocket();
     const id = randomUUID();
+    const wire = (
+      message.type === 'open_panel' ? { type: 'open_panel', id, url: PANEL_HOME } : { ...message, id }
+    ) as ServerMessage;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -137,7 +154,7 @@ export class BridgeServer implements Bridge {
         );
       }, timeoutMs + RESPONSE_MARGIN_MS);
       this.pending.set(id, { resolve, reject, timer });
-      this.send(socket, { ...message, id } as ServerMessage);
+      this.send(socket, wire);
     });
   }
 
@@ -182,7 +199,7 @@ export class BridgeServer implements Bridge {
     );
   }
 
-  private accept(socket: WebSocket): void {
+  private accept(socket: WebSocket, relay: boolean): void {
     this.unauthenticated += 1;
     const serverNonce = randomBytes(32).toString('hex');
     let authenticated = false;
@@ -199,10 +216,13 @@ export class BridgeServer implements Bridge {
       const message = parse(raw.toString());
       if (!message) return;
       if (authenticated) {
-        this.handle(socket, message);
+        if (relay) void this.handleRelay(socket, message as unknown as RelayMessage);
+        else this.handle(socket, message);
         return;
       }
-      const secret = this.authenticate(socket, message, serverNonce);
+      const secret = relay
+        ? this.authenticateRelay(socket, message as unknown as RelayMessage, serverNonce)
+        : this.authenticate(socket, message, serverNonce);
       if (secret === null) {
         giveUp('auth_failed');
         return;
@@ -210,7 +230,7 @@ export class BridgeServer implements Bridge {
       authenticated = true;
       clearTimeout(deadline);
       this.unauthenticated -= 1;
-      this.promote(socket);
+      if (!relay) this.promote(socket);
     });
 
     socket.on('close', () => {
@@ -253,6 +273,43 @@ export class BridgeServer implements Bridge {
       return secret;
     }
     return null;
+  }
+
+  private authenticateRelay(
+    socket: WebSocket,
+    message: RelayMessage,
+    serverNonce: string,
+  ): string | null {
+    if (message.type !== 'relay' || message.protocol !== PROTOCOL_VERSION) return null;
+    const secret = this.pairing.secret();
+    if (!secret || typeof message.proof !== 'string') return null;
+    const expected = proof(secret, PROOF_RELAY, serverNonce, message.clientNonce);
+    if (!safeEqual(expected, message.proof)) return null;
+    this.send(socket, {
+      type: 'welcome',
+      proof: proof(secret, PROOF_SERVER, message.clientNonce, serverNonce),
+    });
+    return secret;
+  }
+
+  /** Passes a relay's call on to the extension, through the same one-at-a-time line. */
+  private async handleRelay(socket: WebSocket, message: RelayMessage): Promise<void> {
+    if (message.type !== 'relay_call' || typeof message.id !== 'string') return;
+    const reply = (value: RelayReply): void => {
+      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
+    };
+    if (!RELAY_CALLS.has(message.call?.type)) {
+      reply({ type: 'relay_error', id: message.id, code: 'rule_rejected', message: 'Unknown relay call.' });
+      return;
+    }
+    const timeoutMs = Math.min(Math.max(Number(message.timeoutMs) || 0, 1000), MAX_RELAY_TIMEOUT_MS);
+    try {
+      const result = await this.call(message.call, timeoutMs);
+      reply({ type: 'relay_result', id: message.id, result });
+    } catch (error) {
+      const code = error instanceof BooksyError ? error.code : 'request_failed';
+      reply({ type: 'relay_error', id: message.id, code, message: (error as Error).message });
+    }
   }
 
   private promote(socket: WebSocket): void {

@@ -43,8 +43,6 @@ export interface TrafficPolicy {
   cacheMultiplier: number;
   /** A read with fresh=true still uses a cached answer younger than this. */
   minFreshSeconds: number;
-  /** No requests when the panel tab or the computer has been unused for longer than this. */
-  maxBackgroundMs: number;
   /** Pause after a 429, a captcha or a request_blocked answer. */
   blockCooldownMs: number;
   /** Pause after a plain 403, which can also mean a missing permission. */
@@ -69,7 +67,6 @@ export const SAFE_TRAFFIC: TrafficPolicy = {
   windowPauseMs: 10 * SECOND,
   cacheMultiplier: 5,
   minFreshSeconds: 60,
-  maxBackgroundMs: 20 * MINUTE,
   blockCooldownMs: 6 * HOUR,
   forbiddenCooldownMs: HOUR,
 };
@@ -92,7 +89,6 @@ export const UNRESTRICTED_TRAFFIC: TrafficPolicy = {
   windowPauseMs: 0,
   cacheMultiplier: 1,
   minFreshSeconds: 0,
-  maxBackgroundMs: Infinity,
   blockCooldownMs: 15 * MINUTE,
   forbiddenCooldownMs: 15 * MINUTE,
 };

@@ -23,6 +23,9 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_CACHE_SECONDS = 60;
 const CONTEXT_TTL_MS = 30_000;
 const CHAT_TIMEOUT_MS = 30_000;
+const OPEN_PANEL_TIMEOUT_MS = 15_000;
+const PANEL_READY_MS = 90_000;
+const PANEL_POLL_MS = 3_000;
 /** A chat read or send asks Booksy for the chat config and a token before it talks to the chat. */
 const CHAT_WEIGHT = 3;
 
@@ -97,11 +100,6 @@ const FAILURE_MESSAGES: Partial<Record<PanelFailure, BooksyError>> = {
   writes_disabled_in_extension: new BooksyError(
     'writes_disabled_in_extension',
     'Writes are switched off in the browser extension. Turn on "Allow writes" in its popup.',
-  ),
-  panel_in_background: new BooksyError(
-    'panel_in_background',
-    'The Booksy Biz tab has been in the background, or this computer unused, for too long. Safe ' +
-      'mode sends no requests then. Click the tab once and try again.',
   ),
 };
 
@@ -185,7 +183,7 @@ export class Gateway {
   async chat(chat: ChatAction): Promise<unknown> {
     this.breaker.assertClosed();
     this.countPage();
-    const request: ChatRequest = { chat, timeoutMs: CHAT_TIMEOUT_MS, ...this.guard() };
+    const request: ChatRequest = { chat, timeoutMs: CHAT_TIMEOUT_MS };
     const result = await this.limiter.schedule(
       () => this.bridge.call({ type: 'chat', request }, CHAT_TIMEOUT_MS),
       { kind: chat.action === 'send' ? 'write' : 'read', weight: CHAT_WEIGHT },
@@ -200,6 +198,48 @@ export class Gateway {
     const result = await this.bridge.call({ type: 'frames' }, DEFAULT_TIMEOUT_MS);
     if (!result.ok) throw this.toError(result);
     return (result.data as FrameRequests[] | undefined) ?? [];
+  }
+
+  /**
+   * Opens a background panel tab when none is open. Only a job asks for this, with --open-panel.
+   * Then waits until the panel in it is ready. Reads the page only, sends nothing to Booksy.
+   */
+  async openPanel(readyWithinMs = PANEL_READY_MS): Promise<{ tabId: number | null; opened: boolean }> {
+    let result: PanelResult;
+    try {
+      result = await this.bridge.call({ type: 'open_panel' }, OPEN_PANEL_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof BooksyError && error.code === 'bridge_timeout') {
+        throw new BooksyError(
+          'extension_outdated',
+          'The browser extension did not answer the request to open a panel tab. It is probably an ' +
+            'older version: reload it in chrome://extensions.',
+        );
+      }
+      throw error;
+    }
+    if (!result.ok) throw this.toError(result);
+    const data = (result.data ?? {}) as { tabId?: unknown; opened?: unknown };
+    const opened = { tabId: typeof data.tabId === 'number' ? data.tabId : null, opened: data.opened === true };
+
+    const deadline = this.now() + readyWithinMs;
+    for (;;) {
+      try {
+        await this.context(true);
+        return opened;
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        const loading = code === 'panel_not_ready' || code === 'panel_tab_missing';
+        if (!loading || this.now() >= deadline) throw error;
+      }
+      await this.limiter.pause(PANEL_POLL_MS);
+    }
+  }
+
+  /** Closes a tab that openPanel opened. The extension closes no other tab. */
+  async closePanel(tabId: number): Promise<void> {
+    const result = await this.bridge.call({ type: 'close_panel', tabId }, OPEN_PANEL_TIMEOUT_MS);
+    if (!result.ok) throw this.toError(result);
   }
 
   /** Runs one tool call, so the page limit can count everything that call asks for. */
@@ -252,7 +292,6 @@ export class Gateway {
         export_interval_ms: traffic.exportIntervalMs,
         max_pages_per_call: limit(traffic.maxPagesPerCall),
         max_range_days: limit(traffic.maxRangeDays),
-        max_background_ms: limit(traffic.maxBackgroundMs),
       },
     };
     if (!traffic.safeMode) status.warning = SAFE_MODE_OFF_WARNING;
@@ -278,11 +317,6 @@ export class Gateway {
     }
   }
 
-  private guard(): { maxBackgroundMs?: number } {
-    const { maxBackgroundMs } = this.traffic;
-    return Number.isFinite(maxBackgroundMs) ? { maxBackgroundMs } : {};
-  }
-
   private taskKind(rule: Rule): TaskKind {
     if (rule.kind === 'write') return 'write';
     return rule.report ? 'export' : 'read';
@@ -299,7 +333,7 @@ export class Gateway {
   private async send(rule: Rule, options: RequestOptions): Promise<PanelResult> {
     this.breaker.assertClosed();
     this.countPage();
-    const request = { ...buildRequest(rule, options), ...this.guard() };
+    const request = buildRequest(rule, options);
     const timeoutMs = rule.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const result = await this.limiter.schedule(
       () => this.bridge.call({ type: 'call', request }, timeoutMs),

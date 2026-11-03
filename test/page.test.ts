@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { unattended } from '../extension/src/guard.js';
 import { pageCall, pageChat, pageContext, pageFrameRequests } from '../extension/src/page.js';
 import { hmacHex } from '../extension/src/crypto.js';
 import { proof } from '../src/bridge/pairing.js';
@@ -158,30 +157,6 @@ describe('pageFrameRequests', () => {
   it('answers only in the report frame', () => {
     vi.stubGlobal('location', { hostname: 'booksy.com' });
     expect(pageFrameRequests()).toBeNull();
-  });
-});
-
-describe('unattended', () => {
-  const now = 10_000_000;
-  const use = { active: true, minimized: false, lastAccessed: 0, computer: 'active', now };
-
-  it('lets a visible tab work, however old the last click', () => {
-    expect(unattended(use, 1000)).toBe(false);
-  });
-
-  it('stops a background tab only after the limit', () => {
-    const hidden = { ...use, active: false };
-    expect(unattended({ ...hidden, lastAccessed: now - 999 }, 1000)).toBe(false);
-    expect(unattended({ ...hidden, lastAccessed: now - 1001 }, 1000)).toBe(true);
-  });
-
-  it('counts a minimized window as background', () => {
-    expect(unattended({ ...use, minimized: true, lastAccessed: now - 1001 }, 1000)).toBe(true);
-  });
-
-  it('stops an idle or locked computer', () => {
-    expect(unattended({ ...use, computer: 'idle' }, 1000)).toBe(true);
-    expect(unattended({ ...use, computer: 'locked' }, 1000)).toBe(true);
   });
 });
 

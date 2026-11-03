@@ -84,8 +84,7 @@ After publishing, `npx -y booksy-mcp extension` will copy the extension to a fol
 path.
 
 The extension asks for access to `booksy.com/pro`, the report frame on
-`stats-and-reports.booksy.com` and the local port. It also uses `idle`, to see that the computer is
-in use. It has no content script and leaves the panel untouched between calls. API calls to
+`stats-and-reports.booksy.com` and the local port. It has no content script and leaves the panel untouched between calls. API calls to
 `pl.booksy.com` are made by the panel page itself.
 
 ### 3. Add the server to your MCP client
@@ -147,7 +146,7 @@ the names in the second column. Environment variables win.
 | `BOOKSY_MCP_EXTENSION_ID` | `extensionIds` | built-in id | Accepted extension id |
 
 Only one MCP client can use a port at a time. A second client gets a clear error. Give it another
-port, or close the first one.
+port, or close the first one. A scheduled job (below) is the exception: it shares the port.
 
 ## Safe mode
 
@@ -172,7 +171,6 @@ cooldown. All thresholds live in `src/config.ts`.
 | `windowPauseMs` | 10 s | none | Pause between windows or weeks of one call |
 | `cacheMultiplier` | 5 | 1 | Cache lives 5, 25 or 50 minutes instead of 1, 5 or 10 |
 | `minFreshSeconds` | 60 | 0 | `fresh` still uses an answer younger than this |
-| `maxBackgroundMs` | 20 min | none | No requests when the panel tab is in the background or minimized, or the computer idle or locked, for longer |
 | `blockCooldownMs` | 6 h | 15 min | Stop after a 429, a captcha or `request_blocked` |
 | `forbiddenCooldownMs` | 1 h | 15 min | Stop after a plain 403, which can also mean a missing permission |
 
@@ -372,6 +370,55 @@ gives the table under its real column labels, without title lines: `rows` up to 
 `calendar_agenda` splits long ranges into windows and reads them one after another with a pause. In
 safe mode a range can have at most 92 days. `appointment_changes_feed` reports new, moved and cancelled appointments since
 its last run, using a small local snapshot of ids, times and statuses.
+
+## Scheduled jobs
+
+`booksy-mcp job` saves a fixed list of reports, and optionally the staff schedule, without an MCP
+client and without a language model. It is meant for a nightly task (launchd, cron, Task
+Scheduler) on the computer where Chrome runs. It goes through the same extension, the same allowlist
+and the same safe mode as the tools: the same gaps between requests and exports, the same budgets
+(kept in the same `traffic.json`), the same range limits and the same stop after a 403, a 429 or a
+captcha. A cooldown started by the job stops the MCP tools too, and the other way round.
+
+```sh
+booksy-mcp job \
+  --exports appointments_list,clients_list,sales_summary \
+  --from 2026-11-01 --to 2026-11-30 \
+  --export sales_log:2026-10-01:2026-10-31 \
+  --schedule 2026-11-01 2026-12-31 \
+  --out ~/booksy-nightly --open-panel --jitter 900
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--exports a,b` with `--from`, `--to` | Report keys from `stats_report_catalog`, for one period |
+| `--export key[:from:to]` | One report with its own period. Can repeat |
+| `--time-span` | Period type sent to Booksy. Default `month` for a whole month, otherwise `between` |
+| `--out <folder>` | Files are saved as `<key>_<from>_<to>.xlsx` |
+| `--schedule <from> <to>` | Also save the staff schedule, to `<out>/schedule.json` or `--schedule-out` |
+| `--summary <file>` | The summary JSON, by default `<out>/summary.json`. Also printed on stdout |
+| `--open-panel` | When no Booksy Biz tab is open, the extension opens one in the background (a new inactive tab in an open window) and closes it at the end. Off by default. It never closes a tab you opened |
+| `--jitter <seconds>` | Waits a random time from 0 to this before the first request, so the start time differs each day |
+
+The schedule file lists every staff member for every day of the range: `minutes` (shifts minus the
+time off inside them), `scheduled_minutes`, `time_off_minutes`, the shift hours and a sum per month.
+
+Exit codes: `0` everything saved, `1` part of it, `2` nothing saved, `3` no extension, no panel tab
+or not logged in, `4` a cooldown, a block by Booksy, a captcha or a used-up budget. The summary says
+for each report whether it was saved and why not. After a `3` or `4` the job stops and marks the rest
+as not tried. Do not retry a `4` in a loop: wait until the cooldown is over.
+
+**Port.** When an MCP client already runs `booksy-mcp` on the port, the job does not fail and does
+not wait. It connects to that server as a relay: it proves the same pairing secret from the config
+folder, and the server passes the job's calls to the extension in its own one-at-a-time line. So
+there is still one pairing and one extension connection, and requests of the job and of the tools
+never overlap. When no server runs, the job takes the port itself for the time it runs. `--open-panel` needs the
+extension from version 0.2.0. With an older one the job exits `3` with `extension_outdated`: reload
+the extension in `chrome://extensions`. Run the job
+with the same `BOOKSY_MCP_CONFIG_DIR` as your MCP client (the default is the same).
+
+How long it takes: in safe mode exports are at least 60 to 120 s apart, so six reports and two months
+of schedule take about 10 to 15 minutes, plus the jitter. Safe mode allows 15 exports per 24 hours.
 
 ## Security and privacy
 

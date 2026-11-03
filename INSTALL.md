@@ -83,7 +83,6 @@ Rules to follow from now on: the tool paces requests on purpose (safe mode). Do 
 | No pairing code, not connected | Already paired in the past. Run `node ~/booksy-mcp-src/dist/index.js reset-pairing`, restart the client, call `session_status`. |
 | Code rejected | Codes last 10 minutes and allow 5 tries. Call `session_status` for a fresh one. |
 | No panel tab / `tab_missing` | The user must open https://booksy.com/pro in Chrome and log in. |
-| Panel in background | Ask the user to bring the panel tab to the front once. |
 | Cooldown after a block | Stop. Tell the user. Booksy asked to slow down. After the time shown, check the panel works by hand, then `reset-cooldown` only if the user agrees. |
 
 ## Uninstall

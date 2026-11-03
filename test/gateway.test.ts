@@ -285,22 +285,6 @@ describe('safe mode', () => {
     expect(bridge.sent()).toHaveLength(2);
   });
 
-  it('asks the extension to refuse an unattended panel', async () => {
-    const { bridge, gateway } = setup(undefined, safe());
-    await gateway.request('reviews.list');
-    expect(bridge.sent()[0]).toMatchObject({
-      request: { maxBackgroundMs: SAFE_TRAFFIC.maxBackgroundMs },
-    });
-  });
-
-  it('explains a refused background tab', async () => {
-    const { gateway } = setup(() => ({ ok: false, failure: 'panel_in_background' }), safe());
-    await expect(gateway.request('reviews.list')).rejects.toMatchObject({
-      code: 'panel_in_background',
-    });
-    expect(gateway.status().cooldown.active).toBe(false);
-  });
-
   it('reports the mode, the use of budgets and no warning', async () => {
     const { gateway } = setup(undefined, safe());
     await gateway.request('reviews.list');
@@ -336,7 +320,6 @@ describe('safe mode off', () => {
     expect(waits).toEqual([]);
     expect(peak).toBe(1);
     expect(() => gateway.assertRange('2020-01-01', '2026-01-01')).not.toThrow();
-    expect(bridge.sent()[0]).not.toHaveProperty('request.maxBackgroundMs');
   });
 
   it('warns in the status', () => {
