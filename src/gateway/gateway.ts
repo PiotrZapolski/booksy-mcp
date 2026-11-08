@@ -229,7 +229,8 @@ export class Gateway {
         return opened;
       } catch (error) {
         const code = (error as { code?: string }).code;
-        const loading = code === 'panel_not_ready' || code === 'panel_tab_missing';
+        // A fresh background tab has the app store before the signed-in user, so not_logged_in can be early.
+        const loading = code === 'panel_not_ready' || code === 'panel_tab_missing' || code === 'not_logged_in';
         if (!loading || this.now() >= deadline) throw error;
       }
       await this.limiter.pause(PANEL_POLL_MS);
