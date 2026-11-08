@@ -374,6 +374,21 @@ describe('open panel', () => {
     await expect(gateway.openPanel()).resolves.toEqual({ tabId: 42, opened: true });
     expect(loading).toBe(0);
   });
+
+  it('waits while a fresh tab has not loaded the signed-in user yet', async () => {
+    const { bridge, gateway } = setup();
+    let loading = 2;
+    const call = bridge.call.bind(bridge);
+    bridge.call = async (message) => {
+      if (message.type === 'context' && loading > 0) {
+        loading -= 1;
+        return { ok: false, failure: 'not_logged_in' };
+      }
+      return call(message);
+    };
+    await expect(gateway.openPanel()).resolves.toEqual({ tabId: 42, opened: true });
+    expect(loading).toBe(0);
+  });
 });
 
 describe('shared ledger', () => {
