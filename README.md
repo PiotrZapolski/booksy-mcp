@@ -408,6 +408,17 @@ or not logged in, `4` a cooldown, a block by Booksy, a captcha or a used-up budg
 for each report whether it was saved and why not. After a `3` or `4` the job stops and marks the rest
 as not tried. Do not retry a `4` in a loop: wait until the cooldown is over.
 
+### Agenda for SMS reminders
+
+`booksy-mcp job --agenda --from <date> --to <date> [--open-panel] [--jitter N]` reads the calendar
+for the range (one request when the range fits in one calendar window) and prints one JSON object on
+stdout: `status`, `range_from`, `range_to`, `complete`, `fetched_at` and `visits`, each with
+`visit_id`, local `start` and `end`, `status`, `updated_epoch`, `service`, `staff` (names),
+`customer_id`, `customer_name` and `phone`. It writes no files, because the result holds phone
+numbers: pipe it straight to where it goes. A failed run prints nothing on stdout, the exit code and
+the `agenda failed: <code>` line on stderr say why. It refuses to run when contact details are
+masked (`redactPii`).
+
 **Port.** When an MCP client already runs `booksy-mcp` on the port, the job does not fail and does
 not wait. It connects to that server as a relay: it proves the same pairing secret from the config
 folder, and the server passes the job's calls to the extension in its own one-at-a-time line. So

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { mergeBookings, toVisits } from '../src/domain/bookings.js';
+import { toAgendaVisits } from '../src/domain/agenda.js';
+import { calendarResourceNames, mergeBookings, toVisits } from '../src/domain/bookings.js';
 import { diffVisits, SnapshotStore, type Snapshot } from '../src/domain/feed.js';
 import { openSlots } from '../src/domain/slots.js';
 import { splitRange, weekStarts } from '../src/domain/windows.js';
@@ -170,5 +171,84 @@ describe('SnapshotStore', () => {
 
   it('starts over on a damaged file', () => {
     expect(new SnapshotStore(tempDir()).load('1')).toBeNull();
+  });
+});
+
+describe('toAgendaVisits', () => {
+  const resourceNames = calendarResourceNames([
+    { id: 7, name: 'Bartek', time_offs: {} },
+    { id: 8, name: 'Ola' },
+  ]);
+
+  it('makes one visit of a two part appointment, with staff names and the phone as given', () => {
+    const { visits, skipped } = toAgendaVisits({
+      resourceNames,
+      bookings: [
+        {
+          id: '11',
+          appointment_uid: '9001',
+          status: 'A',
+          updated_epoch: 1795400000,
+          customer: { id: 987, name: 'Jan Kowalski', phone: '+48 600 000 000' },
+          subbookings: [
+            {
+              booked_from: '2026-11-23 10:30:00',
+              booked_till: '2026-11-23 11:00:00',
+              service: { name: 'Broda' },
+              resources: [{ id: 7 }],
+            },
+            {
+              booked_from: '2026-11-23 10:00:00',
+              booked_till: '2026-11-23 10:30:00',
+              service: { name: 'Strzyzenie wlosow' },
+              resources: [{ id: 7 }],
+            },
+          ],
+        },
+      ],
+    });
+    expect(skipped).toBe(0);
+    expect(visits).toEqual([
+      {
+        visit_id: 9001,
+        start: '2026-11-23T10:00',
+        end: '2026-11-23T11:00',
+        status: 'A',
+        updated_epoch: 1795400000,
+        service: 'Broda, Strzyzenie wlosow',
+        staff: ['Bartek'],
+        customer_id: 987,
+        customer_name: 'Jan Kowalski',
+        phone: '+48 600 000 000',
+      },
+    ]);
+  });
+
+  it('joins bookings of one appointment and keeps a booking without a customer', () => {
+    const { visits } = toAgendaVisits({
+      resourceNames,
+      bookings: [
+        { id: 21, appointment_uid: 5, status: 'A', booked_from: '2026-11-24T12:00', booked_till: '2026-11-24T12:30', resources: [{ id: 8 }] },
+        { id: 22, appointment_uid: 5, status: 'A', booked_from: '2026-11-24T12:30', booked_till: '2026-11-24T13:00', resources: [{ id: 7 }] },
+        { id: 30, status: 'C', booked_from: '2026-11-24 09:00:00', booked_till: '2026-11-24 09:30:00', resources: [{ id: 99 }] },
+      ],
+    });
+    expect(visits).toHaveLength(2);
+    expect(visits[0]).toMatchObject({ visit_id: 30, status: 'C', staff: [], customer_id: null, phone: null, customer_name: null });
+    expect(visits[1]).toMatchObject({ visit_id: 5, start: '2026-11-24T12:00', end: '2026-11-24T13:00', staff: ['Ola', 'Bartek'] });
+  });
+
+  it('leaves out a booking without a numeric id or a start', () => {
+    const { visits, skipped } = toAgendaVisits({
+      resourceNames: {},
+      bookings: [{ appointment_uid: 'abc', booked_from: '2026-11-24 09:00:00' }, { id: 4 }],
+    });
+    expect(visits).toEqual([]);
+    expect(skipped).toBe(2);
+  });
+
+  it('reads staff names from a list or from an object keyed by id', () => {
+    expect(calendarResourceNames({ 7: { name: 'Bartek' }, 8: 'Ola' })).toEqual({ 7: 'Bartek', 8: 'Ola' });
+    expect(calendarResourceNames([{ resource: { id: 3, name: 'Kuba' } }, { id: 4 }])).toEqual({ 3: 'Kuba' });
   });
 });

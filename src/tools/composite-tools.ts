@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  calendarResourceNames,
   calendarTimeOffs,
   mergeBookings,
   type RawBooking,
@@ -23,7 +24,7 @@ interface ShiftsPayload {
 
 /** Reads any date range, one window after another, and merges the results. */
 export async function readCalendar(
-  context: ToolContext,
+  context: Pick<ToolContext, 'gateway'>,
   from: string,
   to: string,
   fresh = false,
@@ -32,12 +33,14 @@ export async function readCalendar(
   reservations: RawBooking[];
   windows: number;
   timeOffs: unknown[];
+  resourceNames: Record<string, string>;
 }> {
   context.gateway.assertRange(from, to);
   const windows = splitRange(from, to, context.gateway.traffic.windowDays);
   const batches: RawBooking[][] = [];
   const reservationBatches: RawBooking[][] = [];
   const timeOffs: unknown[] = [];
+  const resourceNames: Record<string, string> = {};
   let pause = false;
   for (const window of windows) {
     if (pause) await context.gateway.pause();
@@ -56,12 +59,14 @@ export async function readCalendar(
     batches.push(recordList(payload.bookings));
     reservationBatches.push(recordList(payload.reservations));
     timeOffs.push(...calendarTimeOffs(payload.resources));
+    Object.assign(resourceNames, calendarResourceNames(payload.resources));
   }
   return {
     bookings: mergeBookings(batches),
     reservations: mergeBookings(reservationBatches),
     windows: windows.length,
     timeOffs,
+    resourceNames,
   };
 }
 
