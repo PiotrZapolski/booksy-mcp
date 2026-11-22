@@ -1,6 +1,6 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { type AgendaVisit, isoWithOffset, toAgendaVisits } from './domain/agenda.js';
+import { type AgendaVisit, isoWithOffset, phoneFromDetails, toAgendaVisits } from './domain/agenda.js';
 import { dayMinutes, type ScheduleResource } from './domain/slots.js';
 import { addDays, splitRange } from './domain/windows.js';
 import { BooksyError } from './errors.js';
@@ -28,6 +28,9 @@ export const JOB_EXIT = {
 } as const;
 
 const MAX_JITTER_SECONDS = 3600;
+/** Appointment details read per agenda run at most, to find phones the calendar does not show. */
+export const DEFAULT_DETAILS_LIMIT = 30;
+const MAX_DETAILS_LIMIT = 100;
 const KEY = /^[A-Za-z0-9_-]{1,128}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -61,7 +64,16 @@ export interface JobOptions {
   openPanel: boolean;
   jitterSeconds: number;
   /** Read the calendar for SMS reminders instead of saving reports. Nothing is written to disk. */
-  agenda: { from: string; to: string } | null;
+  agenda: AgendaRange | null;
+}
+
+export interface AgendaRange {
+  from: string;
+  to: string;
+  /** File with Booksy customer ids, one per line, whose phone the caller already knows. */
+  knownCustomersFile?: string;
+  /** Most appointment details to read for phones. 0 reads none. */
+  detailsLimit?: number;
 }
 
 function isDate(value: string | undefined): value is string {
@@ -100,6 +112,13 @@ export const JOB_HELP = `booksy-mcp job: save reports and the staff schedule wit
                            customer phone numbers, as one JSON object on stdout, for SMS
                            reminders. Writes no files. Cannot be combined with reports or the
                            schedule, --out is not needed.
+                           Customers who booked in the Booksy app have no phone in the
+                           calendar: for them it reads the appointment details, earliest
+                           first, at most --details-limit per run.
+  --known-customers <file> With --agenda: customer ids, one per line, whose phone the caller
+                           already has. Their appointment details are not read.
+  --details-limit <n>      With --agenda: most appointment details per run. Default ${DEFAULT_DETAILS_LIMIT},
+                           0 reads none.
 
 Exit codes: 0 complete, 1 partial, 2 nothing saved, 3 no extension or panel, 4 cooldown or block.
 `;
@@ -117,6 +136,8 @@ export function parseJobArgs(args: string[]): JobOptions | { error: string } {
   let openPanel = false;
   let jitterSeconds = 0;
   let agenda = false;
+  let knownCustomersFile: string | undefined;
+  let detailsLimit: number | undefined;
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i] as string;
@@ -167,6 +188,18 @@ export function parseJobArgs(args: string[]): JobOptions | { error: string } {
       case '--agenda':
         agenda = true;
         break;
+      case '--known-customers':
+        knownCustomersFile = value();
+        if (!knownCustomersFile) return { error: '--known-customers takes a file.' };
+        break;
+      case '--details-limit': {
+        const count = Number(value());
+        if (!Number.isInteger(count) || count < 0 || count > MAX_DETAILS_LIMIT) {
+          return { error: `--details-limit takes a whole number from 0 to ${MAX_DETAILS_LIMIT}.` };
+        }
+        detailsLimit = count;
+        break;
+      }
       case '--jitter': {
         const seconds = Number(value());
         if (!Number.isInteger(seconds) || seconds < 0 || seconds > MAX_JITTER_SECONDS) {
@@ -195,8 +228,16 @@ export function parseJobArgs(args: string[]): JobOptions | { error: string } {
       summaryOut: join(folder, 'summary.json'),
       openPanel,
       jitterSeconds,
-      agenda: { from, to },
+      agenda: {
+        from,
+        to,
+        ...(knownCustomersFile ? { knownCustomersFile: resolve(knownCustomersFile) } : {}),
+        detailsLimit: detailsLimit ?? DEFAULT_DETAILS_LIMIT,
+      },
     };
+  }
+  if (knownCustomersFile !== undefined || detailsLimit !== undefined) {
+    return { error: '--known-customers and --details-limit go with --agenda only.' };
   }
   if (!out) return { error: 'job needs --out <folder>.' };
   if ((from === undefined) !== (to === undefined)) return { error: 'Give both --from and --to.' };
@@ -579,6 +620,8 @@ export async function runAgenda(options: JobOptions, deps: JobDeps): Promise<Age
       `agenda ${range.from}..${range.to}: ${visits.length} visits, ${calendar.windows} calendar ` +
         `requests${skipped > 0 ? `, ${skipped} bookings without an id or a start left out` : ''}`,
     );
+    const known = readKnownCustomers(range.knownCustomersFile, log);
+    await fillPhones(gateway, visits, known, range.detailsLimit ?? DEFAULT_DETAILS_LIMIT, log);
     return {
       exit_code: JOB_EXIT.complete,
       error_code: null,
@@ -612,4 +655,80 @@ export async function runAgenda(options: JobOptions, deps: JobDeps): Promise<Age
       }
     }
   }
+}
+
+/** Customer ids from the caller's file. A file that cannot be read counts as an empty list. */
+export function readKnownCustomers(
+  file: string | undefined,
+  log: (line: string) => void,
+): Set<number> {
+  const known = new Set<number>();
+  if (!file) return known;
+  let content: string;
+  try {
+    content = readFileSync(file, 'utf8');
+  } catch (error) {
+    log(`known customers not read (${(error as NodeJS.ErrnoException).code ?? 'error'}), reading details for all`);
+    return known;
+  }
+  for (const line of content.split(/\r?\n/)) {
+    const id = line.trim();
+    if (/^\d{1,15}$/.test(id)) known.add(Number(id));
+  }
+  return known;
+}
+
+/**
+ * Phones the calendar does not show (customers from the Booksy app) from the appointment details:
+ * one request per customer, earliest visit first, skipping customers the caller already knows, at
+ * most `limit` requests. Each request is its own gateway call, so the safe mode gaps and budgets
+ * apply. A block, a captcha, a used-up budget or a lost panel stops it without a retry; what was
+ * found so far stays. Other errors skip that one visit. Changes `visits` in place.
+ */
+export async function fillPhones(
+  gateway: Gateway,
+  visits: AgendaVisit[],
+  known: Set<number>,
+  limit: number,
+  log: (line: string) => void,
+): Promise<{ read: number; found: number; stopped: string | null }> {
+  const byCustomer = new Map<number, AgendaVisit[]>();
+  for (const visit of visits) {
+    if (visit.phone || visit.customer_id === null || known.has(visit.customer_id)) continue;
+    const list = byCustomer.get(visit.customer_id) ?? [];
+    list.push(visit);
+    byCustomer.set(visit.customer_id, list);
+  }
+  let read = 0;
+  let found = 0;
+  let stopped: string | null = null;
+  for (const list of byCustomer.values()) {
+    if (read >= limit) break;
+    const first = list[0] as AgendaVisit;
+    read += 1;
+    try {
+      const response = await gateway.scope(() =>
+        gateway.request('appointment.read', { urlParams: { appointmentUid: String(first.visit_id) } }),
+      );
+      const phone = phoneFromDetails(response.data);
+      if (phone) {
+        found += 1;
+        for (const visit of list) visit.phone = phone;
+      }
+    } catch (error) {
+      const { code, message } = errorInfo(error);
+      if (stopFor(code, message)) {
+        stopped = code;
+        break;
+      }
+    }
+  }
+  if (byCustomer.size > 0) {
+    const left = byCustomer.size - found;
+    log(
+      `phones from appointment details: ${found} found in ${read} requests, ${left} customers ` +
+        `still without a phone${stopped ? `, stopped after ${stopped}` : ''}`,
+    );
+  }
+  return { read, found, stopped };
 }
