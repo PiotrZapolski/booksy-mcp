@@ -44,6 +44,9 @@ zamyka ją na końcu. `--jitter <sekundy>` losowo opóźnia start. Kody wyjścia
 2 nic, 3 brak rozszerzenia lub panelu, 4 przerwa po blokadzie. Opis opcji: sekcja
 [Scheduled jobs](README.md#scheduled-jobs).
 
+`booksy-mcp job --agenda --from <data> --to <data>` czyta kalendarz i wypisuje wizyty z telefonami
+klientów jako jeden JSON na stdout (np. do przypomnień SMS). Nie zapisuje żadnych plików.
+
 ## Gdy coś nie działa
 
 - Klient nie widzi narzędzi `booksy`: zrestartuj klienta (w Claude Code `/mcp` i połącz ponownie).

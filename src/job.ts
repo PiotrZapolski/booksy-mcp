@@ -1,11 +1,12 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { type AgendaVisit, isoWithOffset, toAgendaVisits } from './domain/agenda.js';
 import { dayMinutes, type ScheduleResource } from './domain/slots.js';
 import { addDays, splitRange } from './domain/windows.js';
 import { BooksyError } from './errors.js';
 import { extensionFor } from './exports/files.js';
 import type { Gateway } from './gateway/gateway.js';
-import { readShifts } from './tools/composite-tools.js';
+import { readCalendar, readShifts } from './tools/composite-tools.js';
 
 /**
  * A scheduled job without an MCP client and without a language model: it saves a fixed list of
@@ -59,6 +60,8 @@ export interface JobOptions {
   summaryOut: string;
   openPanel: boolean;
   jitterSeconds: number;
+  /** Read the calendar for SMS reminders instead of saving reports. Nothing is written to disk. */
+  agenda: { from: string; to: string } | null;
 }
 
 function isDate(value: string | undefined): value is string {
@@ -93,6 +96,10 @@ export const JOB_HELP = `booksy-mcp job: save reports and the staff schedule wit
   --open-panel             When no Booksy Biz tab is open, open one in the background and close it
                            at the end. Off by default.
   --jitter <seconds>       Wait a random time from 0 to this before the first request.
+  --agenda                 Read the calendar for --from .. --to and print the appointments, with
+                           customer phone numbers, as one JSON object on stdout, for SMS
+                           reminders. Writes no files. Cannot be combined with reports or the
+                           schedule, --out is not needed.
 
 Exit codes: 0 complete, 1 partial, 2 nothing saved, 3 no extension or panel, 4 cooldown or block.
 `;
@@ -109,6 +116,7 @@ export function parseJobArgs(args: string[]): JobOptions | { error: string } {
   let summaryOut: string | undefined;
   let openPanel = false;
   let jitterSeconds = 0;
+  let agenda = false;
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i] as string;
@@ -156,6 +164,9 @@ export function parseJobArgs(args: string[]): JobOptions | { error: string } {
       case '--open-panel':
         openPanel = true;
         break;
+      case '--agenda':
+        agenda = true;
+        break;
       case '--jitter': {
         const seconds = Number(value());
         if (!Number.isInteger(seconds) || seconds < 0 || seconds > MAX_JITTER_SECONDS) {
@@ -169,6 +180,24 @@ export function parseJobArgs(args: string[]): JobOptions | { error: string } {
     }
   }
 
+  if (agenda) {
+    if (keys.length > 0 || single.length > 0 || schedule || scheduleOut || summaryOut || timeSpan) {
+      return { error: '--agenda cannot be combined with reports or the schedule.' };
+    }
+    if (!isDate(from) || !isDate(to)) return { error: '--agenda needs --from and --to, YYYY-MM-DD.' };
+    if (to < from) return { error: '--agenda ends before it starts.' };
+    const folder = resolve(out ?? '.');
+    return {
+      exports: [],
+      out: folder,
+      schedule: null,
+      scheduleOut: join(folder, 'schedule.json'),
+      summaryOut: join(folder, 'summary.json'),
+      openPanel,
+      jitterSeconds,
+      agenda: { from, to },
+    };
+  }
   if (!out) return { error: 'job needs --out <folder>.' };
   if ((from === undefined) !== (to === undefined)) return { error: 'Give both --from and --to.' };
   if (from !== undefined && (!isDate(from) || !isDate(to))) {
@@ -205,6 +234,7 @@ export function parseJobArgs(args: string[]): JobOptions | { error: string } {
     summaryOut: resolve(summaryOut ?? join(folder, 'summary.json')),
     openPanel,
     jitterSeconds,
+    agenda: null,
   };
 }
 
@@ -495,4 +525,91 @@ export async function runJob(options: JobOptions, deps: JobDeps): Promise<JobSum
   };
   writeSafely(options.summaryOut, `${JSON.stringify(summary, null, 2)}\n`);
   return summary;
+}
+
+/** The agenda as Agents Hub OS takes it. A failed run prints nothing, the caller reports it. */
+export interface AgendaPayload {
+  status: 'ok';
+  reason: null;
+  range_from: string;
+  range_to: string;
+  complete: boolean;
+  fetched_at: string;
+  visits: AgendaVisit[];
+}
+
+export interface AgendaOutcome {
+  exit_code: number;
+  error_code: string | null;
+  reason: string | null;
+  payload: AgendaPayload | null;
+}
+
+/**
+ * Reads the calendar once for the range, through the same gateway, safe mode and stop after a
+ * block as everything else, and keeps the result in memory only: it holds phone numbers.
+ */
+export async function runAgenda(options: JobOptions, deps: JobDeps): Promise<AgendaOutcome> {
+  const range = options.agenda;
+  if (!range) throw new Error('runAgenda needs options.agenda');
+  const { gateway } = deps;
+  const now = deps.now ?? (() => new Date());
+  const sleep = deps.sleep ?? ((ms) => new Promise<void>((done) => setTimeout(done, ms)));
+  const random = deps.random ?? Math.random;
+  const log = deps.log ?? (() => undefined);
+
+  const jitter = Math.floor(random() * options.jitterSeconds);
+  if (jitter > 0) {
+    log(`waiting ${jitter} s before the first request`);
+    await sleep(jitter * 1000);
+  }
+
+  let openedTab: number | null = null;
+  try {
+    if (options.openPanel) {
+      const tab = await gateway.openPanel();
+      if (tab.opened) openedTab = tab.tabId;
+    }
+    const context = await gateway.context(true);
+    const calendar = await gateway.scope(() =>
+      readCalendar({ gateway }, range.from, range.to, true),
+    );
+    const { visits, skipped } = toAgendaVisits(calendar);
+    log(
+      `agenda ${range.from}..${range.to}: ${visits.length} visits, ${calendar.windows} calendar ` +
+        `requests${skipped > 0 ? `, ${skipped} bookings without an id or a start left out` : ''}`,
+    );
+    return {
+      exit_code: JOB_EXIT.complete,
+      error_code: null,
+      reason: null,
+      payload: {
+        status: 'ok',
+        reason: null,
+        range_from: range.from,
+        range_to: range.to,
+        complete: skipped === 0,
+        fetched_at: isoWithOffset(now(), context.timezone ?? null),
+        visits,
+      },
+    };
+  } catch (error) {
+    const { code, message } = errorInfo(error);
+    const stop = stopFor(code, message);
+    log(`agenda failed: ${code}`);
+    return {
+      exit_code: stop?.kind === 'block' ? JOB_EXIT.blocked : stop ? JOB_EXIT.noPanel : JOB_EXIT.nothing,
+      error_code: code,
+      reason: message,
+      payload: null,
+    };
+  } finally {
+    if (openedTab !== null) {
+      try {
+        await gateway.closePanel(openedTab);
+      } catch {
+        // The tab stays open. Nothing else to do from here.
+      }
+    }
+  }
 }

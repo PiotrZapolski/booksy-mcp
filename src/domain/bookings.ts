@@ -9,7 +9,7 @@ export interface Visit {
   staffIds: string[];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
@@ -41,13 +41,13 @@ export function calendarTimeOffs(resources: unknown): unknown[] {
   });
 }
 
-function text(value: unknown): string | null {
+export function text(value: unknown): string | null {
   if (typeof value === 'string' && value.length > 0) return value;
   if (typeof value === 'number') return String(value);
   return null;
 }
 
-function staffIds(booking: RawBooking): string[] {
+export function staffIds(booking: RawBooking): string[] {
   const ids = new Set<string>();
   const add = (value: unknown): void => {
     const id = text(value);
@@ -65,12 +65,12 @@ function staffIds(booking: RawBooking): string[] {
   return [...ids];
 }
 
-function statusOf(booking: RawBooking): string | null {
+export function statusOf(booking: RawBooking): string | null {
   const meta = booking.$meta as RawBooking | undefined;
   return text(booking.status) ?? text(booking.appointment_status) ?? text(meta?.status);
 }
 
-function subbookings(booking: RawBooking): RawBooking[] {
+export function subbookings(booking: RawBooking): RawBooking[] {
   return Array.isArray(booking.subbookings) && booking.subbookings.length > 0
     ? (booking.subbookings as RawBooking[])
     : [booking];
@@ -117,4 +117,39 @@ export function mergeBookings(batches: RawBooking[][]): RawBooking[] {
     for (const booking of batch) merged.set(bookingKey(booking), booking);
   }
   return [...merged.values()];
+}
+
+function resourceName(resource: Record<string, unknown>): string | null {
+  const nested = isRecord(resource.resource) ? resource.resource : {};
+  const direct = text(resource.name) ?? text(nested.name);
+  if (direct) return direct.trim() || null;
+  const parts = [resource.first_name ?? nested.first_name, resource.last_name ?? nested.last_name]
+    .map(text)
+    .filter((part): part is string => part !== null);
+  return parts.length > 0 ? parts.join(' ').trim() : null;
+}
+
+/**
+ * Staff names from the top level `resources` of a calendar answer, by resource id. The answer
+ * holds a list of resources, an object keyed by id is accepted as well.
+ */
+export function calendarResourceNames(resources: unknown): Record<string, string> {
+  const names: Record<string, string> = {};
+  const entries: Array<[string | null, unknown]> = Array.isArray(resources)
+    ? resources.map((item) => [null, item])
+    : isRecord(resources)
+      ? Object.entries(resources)
+      : [];
+  for (const [key, item] of entries) {
+    if (!isRecord(item)) {
+      const name = text(item);
+      if (key && name) names[key] = name;
+      continue;
+    }
+    const nested = isRecord(item.resource) ? item.resource : {};
+    const id = text(item.id) ?? text(nested.id) ?? key;
+    const name = resourceName(item);
+    if (id && name) names[id] = name;
+  }
+  return names;
 }

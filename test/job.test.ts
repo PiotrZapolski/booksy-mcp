@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { BridgeCall } from '../src/bridge/server.js';
@@ -12,6 +12,7 @@ import {
   type JobOptions,
   type JobSchedule,
   parseJobArgs,
+  runAgenda,
   runJob,
   timeSpanFor,
 } from '../src/job.js';
@@ -81,6 +82,7 @@ function options(overrides: Partial<JobOptions> = {}): JobOptions {
     summaryOut: join(out, 'summary.json'),
     openPanel: false,
     jitterSeconds: 0,
+    agenda: null,
     ...overrides,
   };
 }
@@ -401,5 +403,150 @@ describe('shared ledger', () => {
     server.record('exports');
     expect(server.count('requests', 60_000)).toBe(3);
     expect(job.count('exports', 60_000)).toBe(1);
+  });
+});
+
+function calendarAnswer(): PanelResult {
+  return {
+    ok: true,
+    data: {
+      bookings: {
+        '501': {
+          appointment_uid: 9001,
+          status: 'A',
+          updated_epoch: 1795400000,
+          booked_from: '2026-11-23 10:00:00',
+          booked_till: '2026-11-23 11:00:00',
+          service: { name: 'Strzyzenie wlosow' },
+          resources: [{ id: 7 }],
+          customer: { id: 987, name: 'Jan Kowalski', phone: '+48 600 000 000' },
+        },
+      },
+      reservations: {},
+      resources: [{ id: 7, name: 'Bartek', time_offs: {} }],
+    },
+  };
+}
+
+function agendaSetup(answer: Answer = () => undefined) {
+  return setup((call) => {
+    const custom = answer(call);
+    if (custom) return custom;
+    if (call.type === 'call' && call.request.ruleId === 'calendar.range') return calendarAnswer();
+    return undefined;
+  }, SAFE_TRAFFIC);
+}
+
+function filesUnder(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    return statSync(path).isDirectory() ? filesUnder(path) : [path];
+  });
+}
+
+describe('agenda job', () => {
+  it('reads --agenda with a range and needs no --out', () => {
+    expect(
+      parseJobArgs(['--agenda', '--from', '2026-11-23', '--to', '2026-11-29', '--open-panel', '--jitter', '300']),
+    ).toMatchObject({
+      agenda: { from: '2026-11-23', to: '2026-11-29' },
+      exports: [],
+      schedule: null,
+      openPanel: true,
+      jitterSeconds: 300,
+    });
+    expect(parseJobArgs(['--agenda'])).toHaveProperty('error');
+    expect(parseJobArgs(['--agenda', '--from', '2026-11-24', '--to', '2026-11-23'])).toHaveProperty('error');
+    expect(
+      parseJobArgs(['--agenda', '--from', '2026-11-23', '--to', '2026-11-24', '--exports', 'a']),
+    ).toHaveProperty('error');
+    expect(
+      parseJobArgs(['--agenda', '--from', '2026-11-23', '--to', '2026-11-24', '--schedule', '2026-11-23', '2026-11-24']),
+    ).toHaveProperty('error');
+  });
+
+  it('makes one calendar request and prints the contract, writing no files', async () => {
+    const dir = tempDir();
+    const { bridge } = agendaSetup();
+    const gateway = new Gateway(bridge, {
+      traffic: SAFE_TRAFFIC,
+      redactPii: false,
+      ledgerPath: join(dir, 'traffic.json'),
+      sleep: async () => undefined,
+    });
+    const job = options({ out: join(dir, 'out'), exports: [], schedule: null, agenda: { from: '2026-11-23', to: '2026-11-24' } });
+    const outcome = await runAgenda(job, { gateway, now: () => new Date('2026-11-23T06:31:12Z') });
+
+    expect(outcome).toMatchObject({ exit_code: 0, error_code: null });
+    const calls = bridge.sent().filter((call) => call.type === 'call');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      request: { ruleId: 'calendar.range', params: { start_date: '2026-11-23', end_date: '2026-11-24' } },
+    });
+    const parsed = JSON.parse(JSON.stringify(outcome.payload));
+    expect(parsed).toEqual({
+      status: 'ok',
+      reason: null,
+      range_from: '2026-11-23',
+      range_to: '2026-11-24',
+      complete: true,
+      fetched_at: '2026-11-23T07:31:12+01:00',
+      visits: [
+        {
+          visit_id: 9001,
+          start: '2026-11-23T10:00',
+          end: '2026-11-23T11:00',
+          status: 'A',
+          updated_epoch: 1795400000,
+          service: 'Strzyzenie wlosow',
+          staff: ['Bartek'],
+          customer_id: 987,
+          customer_name: 'Jan Kowalski',
+          phone: '+48 600 000 000',
+        },
+      ],
+    });
+    for (const file of filesUnder(dir)) {
+      expect(readFileSync(file, 'utf8')).not.toContain('600 000 000');
+      expect(readFileSync(file, 'utf8')).not.toContain('Kowalski');
+    }
+    expect(existsSync(job.summaryOut)).toBe(false);
+  });
+
+  it('stops at a 429 without a retry and exits 4', async () => {
+    const { bridge, gateway } = agendaSetup((call) =>
+      call.type === 'call' ? { ok: false, status: 429, data: {} } : undefined,
+    );
+    const job = options({ exports: [], schedule: null, agenda: { from: '2026-11-23', to: '2026-11-24' } });
+    const outcome = await runAgenda(job, { gateway });
+    expect(outcome).toMatchObject({ exit_code: 4, error_code: 'blocked_by_booksy', payload: null });
+    expect(bridge.sent().filter((call) => call.type === 'call')).toHaveLength(1);
+  });
+
+  it('exits 3 when the panel is logged out', async () => {
+    const { bridge, gateway } = agendaSetup();
+    const call = bridge.call.bind(bridge);
+    bridge.call = async (message) =>
+      message.type === 'context' ? { ok: false, failure: 'not_logged_in' } : call(message);
+    const job = options({ exports: [], schedule: null, agenda: { from: '2026-11-23', to: '2026-11-24' } });
+    const outcome = await runAgenda(job, { gateway });
+    expect(outcome).toMatchObject({ exit_code: 3, error_code: 'not_logged_in', payload: null });
+    expect(bridge.sent().filter((sent) => sent.type === 'call')).toHaveLength(0);
+  });
+
+  it('closes the tab it opened, also after a block', async () => {
+    const { bridge, gateway } = agendaSetup((call) =>
+      call.type === 'call' ? { ok: false, status: 429, data: {} } : undefined,
+    );
+    const job = options({
+      exports: [],
+      schedule: null,
+      openPanel: true,
+      agenda: { from: '2026-11-23', to: '2026-11-24' },
+    });
+    const outcome = await runAgenda(job, { gateway });
+    expect(outcome.exit_code).toBe(4);
+    expect(bridge.sent().some((sent) => sent.type === 'close_panel')).toBe(true);
   });
 });

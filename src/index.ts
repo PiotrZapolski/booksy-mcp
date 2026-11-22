@@ -9,7 +9,7 @@ import { BridgeServer } from './bridge/server.js';
 import { loadConfig, SAFE_MODE_OFF_WARNING } from './config.js';
 import { Gateway } from './gateway/gateway.js';
 import { TrafficLedger } from './gateway/ledger.js';
-import { JOB_EXIT, JOB_HELP, parseJobArgs, runJob } from './job.js';
+import { JOB_EXIT, JOB_HELP, parseJobArgs, runAgenda, runJob } from './job.js';
 import { createServer, ledgerPath, SERVER_VERSION } from './server.js';
 import { parseSetupArgs, realSetupEnv, runSetup } from './setup.js';
 
@@ -86,8 +86,12 @@ async function job(args: string[]): Promise<void> {
     process.exit(JOB_EXIT.nothing);
   }
   const config = loadConfig();
-  const pairing = new Pairing(join(config.configDir, 'bridge-secret'));
   const log = (line: string): void => console.error(`booksy-mcp job: ${line}`);
+  if (options.agenda && config.redactPii) {
+    log('--agenda needs customer phone numbers, and contact details are masked (redactPii).');
+    process.exit(JOB_EXIT.nothing);
+  }
+  const pairing = new Pairing(join(config.configDir, 'bridge-secret'));
   // The extension's service worker may be asleep and wakes up at least every 30 s to reconnect.
   const server = new BridgeServer(
     { port: config.port, extensionIds: config.extensionIds, connectWaitMs: JOB_CONNECT_WAIT_MS },
@@ -115,9 +119,16 @@ async function job(args: string[]): Promise<void> {
   });
   let code: number = JOB_EXIT.nothing;
   try {
-    const summary = await runJob(options, { gateway, log });
-    process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
-    code = summary.exit_code;
+    if (options.agenda) {
+      // Phone numbers go to stdout only, never to a file.
+      const outcome = await runAgenda(options, { gateway, log });
+      if (outcome.payload) process.stdout.write(`${JSON.stringify(outcome.payload)}\n`);
+      code = outcome.exit_code;
+    } else {
+      const summary = await runJob(options, { gateway, log });
+      process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+      code = summary.exit_code;
+    }
   } finally {
     await stop();
   }
