@@ -120,13 +120,16 @@ export function toAgendaVisits(raw: RawCalendar): { visits: AgendaVisit[]; skipp
  */
 export function phoneFromDetails(data: unknown): string | null {
   if (!isRecord(data)) return null;
-  const holder = isRecord(data.appointment) ? data.appointment : data;
-  const customer = isRecord(holder.customer) ? holder.customer : null;
-  if (!customer) return null;
-  for (const key of ['merged_data', 'customer_profile', 'business_customer']) {
-    const part = customer[key];
-    const phone = isRecord(part) ? phoneText(part.cell_phone) : null;
-    if (phone) return phone;
+  // The live panel answers { appointment: { customer: { id, mode } }, customer: { merged_data, ... } }:
+  // the contact data sits in the top-level customer, so look there first.
+  const candidates = [data.customer, isRecord(data.appointment) ? data.appointment.customer : null];
+  for (const customer of candidates) {
+    if (!isRecord(customer)) continue;
+    for (const key of ['merged_data', 'customer_profile', 'business_customer']) {
+      const part = customer[key];
+      const phone = isRecord(part) ? phoneText(part.cell_phone) : null;
+      if (phone) return phone;
+    }
   }
   return null;
 }

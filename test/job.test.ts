@@ -633,6 +633,13 @@ describe('agenda phones from appointment details', () => {
     expect(phoneFromDetails(details('9005').data)).toBe('+48 555 555 555');
     expect(phoneFromDetails({ customer: { merged_data: { cell_phone: ' +48 1 ' } } })).toBe('+48 1');
     expect(phoneFromDetails({ appointment: { customer: {} } })).toBeNull();
+    // live panel shape (2026-11-22): contact data only in the top-level customer
+    expect(
+      phoneFromDetails({
+        appointment: { customer: { id: 1, mode: 'x' } },
+        customer: { merged_data: { cell_phone: '+48 577 777 777' }, business_customer: { cell_phone: '' } },
+      }),
+    ).toBe('+48 577 777 777');
     expect(phoneFromDetails(null)).toBeNull();
   });
 
