@@ -702,6 +702,7 @@ export async function fillPhones(
   let read = 0;
   let found = 0;
   let stopped: string | null = null;
+  const errors = new Map<string, number>();
   for (const list of byCustomer.values()) {
     if (read >= limit) break;
     const first = list[0] as AgendaVisit;
@@ -717,6 +718,7 @@ export async function fillPhones(
       }
     } catch (error) {
       const { code, message } = errorInfo(error);
+      errors.set(code, (errors.get(code) ?? 0) + 1);
       if (stopFor(code, message)) {
         stopped = code;
         break;
@@ -727,7 +729,8 @@ export async function fillPhones(
     const left = byCustomer.size - found;
     log(
       `phones from appointment details: ${found} found in ${read} requests, ${left} customers ` +
-        `still without a phone${stopped ? `, stopped after ${stopped}` : ''}`,
+        `still without a phone${stopped ? `, stopped after ${stopped}` : ''}` +
+        (errors.size > 0 ? `, errors: ${[...errors].map(([c, n]) => `${c} x${n}`).join(', ')}` : ''),
     );
   }
   return { read, found, stopped };
