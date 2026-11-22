@@ -46,6 +46,9 @@ zamyka ją na końcu. `--jitter <sekundy>` losowo opóźnia start. Kody wyjścia
 
 `booksy-mcp job --agenda --from <data> --to <data>` czyta kalendarz i wypisuje wizyty z telefonami
 klientów jako jeden JSON na stdout (np. do przypomnień SMS). Nie zapisuje żadnych plików.
+Klientom z aplikacji Booksy (bez numeru w kalendarzu) dociąga telefon ze szczegółów wizyty, najwyżej
+`--details-limit` (domyślnie 30) na przebieg; `--known-customers <plik>` pomija klientów, których
+numer już masz.
 
 ## Gdy coś nie działa
 

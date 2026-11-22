@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { BridgeCall } from '../src/bridge/server.js';
@@ -9,13 +9,16 @@ import { Gateway } from '../src/gateway/gateway.js';
 import { TrafficLedger } from '../src/gateway/ledger.js';
 import {
   exitCodeFor,
+  fillPhones,
   type JobOptions,
   type JobSchedule,
   parseJobArgs,
   runAgenda,
+  readKnownCustomers,
   runJob,
   timeSpanFor,
 } from '../src/job.js';
+import { phoneFromDetails } from '../src/domain/agenda.js';
 import type { PanelResult } from '../src/shared/protocol.js';
 import { FakeBridge, tempDir } from './helpers.js';
 
@@ -548,5 +551,168 @@ describe('agenda job', () => {
     const outcome = await runAgenda(job, { gateway });
     expect(outcome.exit_code).toBe(4);
     expect(bridge.sent().some((sent) => sent.type === 'close_panel')).toBe(true);
+  });
+});
+
+function appBooking(uid: number, customerId: number, from: string, phone: string | null = null) {
+  return {
+    appointment_uid: uid,
+    status: 'A',
+    booked_from: `2026-11-23 ${from}:00`,
+    booked_till: `2026-11-23 ${from.slice(0, 2)}:45:00`,
+    service: { name: 'Broda' },
+    resources: [{ id: 7 }],
+    customer: { id: customerId, name: `Klient ${customerId}`, phone },
+  };
+}
+
+function appCalendar(): PanelResult {
+  return {
+    ok: true,
+    data: {
+      bookings: {
+        '1': appBooking(9001, 987, '09:00', '+48 600 000 000'),
+        '2': appBooking(9002, 988, '10:00'),
+        '3': appBooking(9003, 989, '11:00'),
+        '4': appBooking(9004, 988, '12:00'),
+        '5': appBooking(9005, 990, '13:00', '  '),
+        '6': { ...appBooking(9006, 0, '14:00'), customer: { name: 'Bez karty' } },
+      },
+      reservations: {},
+      resources: [{ id: 7, name: 'Bartek', time_offs: {} }],
+    },
+  };
+}
+
+function details(uid: string): PanelResult {
+  const phones: Record<string, unknown> = {
+    '9002': { merged_data: { cell_phone: '+48 511 111 111' }, customer_profile: { cell_phone: '+48 522' }, business_customer: { cell_phone: '' } },
+    '9003': { merged_data: {}, customer_profile: { cell_phone: '+48 533 333 333' }, business_customer: {} },
+    '9005': { merged_data: { cell_phone: null }, business_customer: { cell_phone: '+48 555 555 555' } },
+  };
+  return { ok: true, data: { appointment: { appointment_uid: Number(uid), customer: phones[uid] ?? {} } } };
+}
+
+function phoneSetup(onDetails: (uid: string) => PanelResult = details) {
+  return setup((call) => {
+    if (call.type !== 'call') return undefined;
+    if (call.request.ruleId === 'calendar.range') return appCalendar();
+    if (call.request.ruleId === 'appointment.read') {
+      return onDetails(String(call.request.urlParams?.appointmentUid));
+    }
+    return undefined;
+  }, SAFE_TRAFFIC);
+}
+
+const detailCalls = (bridge: FakeBridge) =>
+  bridge
+    .sent()
+    .filter((call) => call.type === 'call' && call.request.ruleId === 'appointment.read')
+    .map((call) => (call.type === 'call' ? call.request.urlParams?.appointmentUid : null));
+
+const agendaJob = (agenda: Partial<NonNullable<JobOptions['agenda']>> = {}) =>
+  options({ exports: [], schedule: null, agenda: { from: '2026-11-23', to: '2026-11-23', ...agenda } });
+
+describe('agenda phones from appointment details', () => {
+  it('reads --known-customers and --details-limit only with --agenda', () => {
+    expect(
+      parseJobArgs(['--agenda', '--from', '2026-11-23', '--to', '2026-11-23', '--known-customers', '/tmp/k', '--details-limit', '5']),
+    ).toMatchObject({ agenda: { knownCustomersFile: '/tmp/k', detailsLimit: 5 } });
+    expect(parseJobArgs(['--agenda', '--from', '2026-11-23', '--to', '2026-11-23'])).toMatchObject({
+      agenda: { detailsLimit: 30 },
+    });
+    expect(parseJobArgs(['--agenda', '--from', '2026-11-23', '--to', '2026-11-23', '--details-limit', '-1'])).toHaveProperty('error');
+    expect(parseJobArgs(['--agenda', '--from', '2026-11-23', '--to', '2026-11-23', '--details-limit', '101'])).toHaveProperty('error');
+    expect(parseJobArgs(['--agenda', '--from', '2026-11-23', '--to', '2026-11-23', '--known-customers'])).toHaveProperty('error');
+    expect(parseJobArgs(['--out', '/tmp/o', '--schedule', '2026-11-01', '2026-11-02', '--details-limit', '3'])).toHaveProperty('error');
+  });
+
+  it('picks the phone from merged data, then the profile, then the salon card', () => {
+    expect(phoneFromDetails(details('9002').data)).toBe('+48 511 111 111');
+    expect(phoneFromDetails(details('9003').data)).toBe('+48 533 333 333');
+    expect(phoneFromDetails(details('9005').data)).toBe('+48 555 555 555');
+    expect(phoneFromDetails({ customer: { merged_data: { cell_phone: ' +48 1 ' } } })).toBe('+48 1');
+    expect(phoneFromDetails({ appointment: { customer: {} } })).toBeNull();
+    expect(phoneFromDetails(null)).toBeNull();
+  });
+
+  it('reads details once per customer without a phone, skipping known ones, and writes no phones', async () => {
+    const dir = tempDir();
+    const known = join(dir, 'known.txt');
+    writeFileSync(known, '989\n\nnot-an-id\n12\n');
+    const { bridge } = phoneSetup();
+    const gateway = new Gateway(bridge, {
+      traffic: SAFE_TRAFFIC,
+      redactPii: false,
+      ledgerPath: join(dir, 'traffic.json'),
+      sleep: async () => undefined,
+    });
+    const lines: string[] = [];
+    const outcome = await runAgenda(agendaJob({ knownCustomersFile: known, detailsLimit: 30 }), {
+      gateway,
+      log: (line) => lines.push(line),
+    });
+    expect(outcome).toMatchObject({ exit_code: 0, error_code: null });
+    expect(detailCalls(bridge)).toEqual(['9002', '9005']);
+    const phones = Object.fromEntries((outcome.payload?.visits ?? []).map((v) => [v.visit_id, v.phone]));
+    expect(phones).toEqual({
+      9001: '+48 600 000 000',
+      9002: '+48 511 111 111',
+      9003: null, // known to the caller
+      9004: '+48 511 111 111', // same customer as 9002
+      9005: '+48 555 555 555',
+      9006: null, // no customer id
+    });
+    expect(outcome.payload?.complete).toBe(true);
+    expect(lines.join('\n')).toContain('2 found in 2 requests');
+    for (const file of filesUnder(dir)) {
+      expect(readFileSync(file, 'utf8')).not.toMatch(/511 111|555 555|600 000/);
+    }
+  });
+
+  it('keeps to the limit, earliest visit first', async () => {
+    const { bridge, gateway } = phoneSetup();
+    await runAgenda(agendaJob({ detailsLimit: 2 }), { gateway });
+    expect(detailCalls(bridge)).toEqual(['9002', '9003']);
+    const { bridge: none, gateway: noneGateway } = phoneSetup();
+    await runAgenda(agendaJob({ detailsLimit: 0 }), { gateway: noneGateway });
+    expect(detailCalls(none)).toEqual([]);
+  });
+
+  it('stops at a 403 without a retry and still prints the calendar', async () => {
+    const { bridge, gateway } = phoneSetup((uid) =>
+      uid === '9003' ? { ok: false, status: 403, data: {} } : details(uid),
+    );
+    const lines: string[] = [];
+    const outcome = await runAgenda(agendaJob(), { gateway, log: (line) => lines.push(line) });
+    expect(outcome).toMatchObject({ exit_code: 0, payload: { complete: true } });
+    expect(detailCalls(bridge)).toEqual(['9002', '9003']);
+    expect(outcome.payload?.visits.find((v) => v.visit_id === 9002)?.phone).toBe('+48 511 111 111');
+    expect(outcome.payload?.visits.find((v) => v.visit_id === 9005)?.phone).toBeNull();
+    expect(lines.join('\n')).toContain('stopped after blocked_by_booksy');
+  });
+
+  it('stops at a captcha answer too, and skips one failed visit otherwise', async () => {
+    const captcha = phoneSetup(() => ({ ok: false, status: 200, data: { error: 'captcha required' } }));
+    const result = await fillPhones(
+      captcha.gateway,
+      (await runAgenda(agendaJob({ detailsLimit: 0 }), { gateway: captcha.gateway })).payload?.visits ?? [],
+      new Set(),
+      30,
+      () => undefined,
+    );
+    expect(result).toMatchObject({ read: 1, found: 0, stopped: 'blocked_by_booksy' });
+
+    const missing = phoneSetup((uid) => (uid === '9002' ? { ok: false, status: 404, data: {} } : details(uid)));
+    const outcome = await runAgenda(agendaJob(), { gateway: missing.gateway });
+    expect(detailCalls(missing.bridge)).toEqual(['9002', '9003', '9005']);
+    expect(outcome.payload?.visits.find((v) => v.visit_id === 9003)?.phone).toBe('+48 533 333 333');
+  });
+
+  it('treats an unreadable known-customers file as an empty list', () => {
+    const lines: string[] = [];
+    expect(readKnownCustomers(join(tempDir(), 'nope.txt'), (line) => lines.push(line)).size).toBe(0);
+    expect(lines[0]).toContain('ENOENT');
+    expect(readKnownCustomers(undefined, () => undefined).size).toBe(0);
   });
 });

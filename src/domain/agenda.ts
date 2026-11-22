@@ -44,6 +44,11 @@ function wholeNumber(value: unknown): number | null {
   return null;
 }
 
+/** A phone as text, trimmed, or null when blank. */
+function phoneText(value: unknown): string | null {
+  return text(value)?.trim() || null;
+}
+
 function serviceName(part: RawBooking): string | null {
   const service = part.service;
   if (isRecord(service)) return text(service.name);
@@ -81,14 +86,14 @@ export function toAgendaVisits(raw: RawCalendar): { visits: AgendaVisit[]; skipp
           staff: [],
           customer_id: wholeNumber(customer.id),
           customer_name: text(customer.name),
-          phone: text(customer.phone),
+          phone: phoneText(customer.phone),
           services: [],
         };
         visits.set(id, visit);
       } else {
         visit.customer_id ??= wholeNumber(customer.id);
         visit.customer_name ??= text(customer.name);
-        visit.phone ??= text(customer.phone);
+        visit.phone ??= phoneText(customer.phone);
         if (start < visit.start) visit.start = start;
         if (end && (!visit.end || end > visit.end)) visit.end = end;
         const epoch = wholeNumber(booking.updated_epoch);
@@ -107,6 +112,23 @@ export function toAgendaVisits(raw: RawCalendar): { visits: AgendaVisit[]; skipp
   }));
   list.sort((a, b) => (a.start === b.start ? a.visit_id - b.visit_id : a.start < b.start ? -1 : 1));
   return { visits: list, skipped };
+}
+
+/**
+ * The customer's phone from `{B}/appointments/:appointmentUid/`: the merged data first, then the
+ * Booksy profile, then the salon's own card (the one the calendar shows, often empty).
+ */
+export function phoneFromDetails(data: unknown): string | null {
+  if (!isRecord(data)) return null;
+  const holder = isRecord(data.appointment) ? data.appointment : data;
+  const customer = isRecord(holder.customer) ? holder.customer : null;
+  if (!customer) return null;
+  for (const key of ['merged_data', 'customer_profile', 'business_customer']) {
+    const part = customer[key];
+    const phone = isRecord(part) ? phoneText(part.cell_phone) : null;
+    if (phone) return phone;
+  }
+  return null;
 }
 
 /** "2026-11-23T07:31:12+01:00": the moment in the salon's zone, with its offset. */

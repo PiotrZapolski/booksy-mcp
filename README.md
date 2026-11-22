@@ -419,6 +419,15 @@ numbers: pipe it straight to where it goes. A failed run prints nothing on stdou
 the `agenda failed: <code>` line on stderr say why. It refuses to run when contact details are
 masked (`redactPii`).
 
+The calendar shows only the phone from the salon's own client card, so customers who booked in the
+Booksy app come without one. For them the job reads the appointment details
+(`{B}/appointments/:appointmentUid/`, the `merged_data`, then `customer_profile`, then
+`business_customer` cell phone): one request per customer, earliest visit first, at most
+`--details-limit` per run (default 30, `0` reads none), each with the usual safe mode gap. Pass
+`--known-customers <file>` (customer ids, one per line, no phone numbers) to skip customers whose
+phone you already have. A block, captcha or used-up budget stops these reads without a retry and the
+job still prints the calendar it has; `complete` describes the calendar only.
+
 **Port.** When an MCP client already runs `booksy-mcp` on the port, the job does not fail and does
 not wait. It connects to that server as a relay: it proves the same pairing secret from the config
 folder, and the server passes the job's calls to the extension in its own one-at-a-time line. So
