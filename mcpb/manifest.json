@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "booksy-mcp",
   "display_name": "Booksy Biz",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Booksy Biz through your own logged-in browser tab. No session tokens leave the browser.",
   "long_description": "Reads a Booksy Biz salon panel (calendar, staff, clients, payments, report exports) through your own logged-in Chrome tab. It needs Chrome 121 or newer with the Booksy MCP Bridge extension, which is included in this bundle in the `extension/dist` folder and attached to every GitHub release as a zip. Traffic is paced on purpose and write tools are off by default. Unofficial, not affiliated with Booksy.",
   "author": {

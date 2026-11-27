@@ -7,13 +7,53 @@
     "url": "https://github.com/PiotrZapolski/booksy-mcp",
     "source": "github"
   },
-  "version": "0.2.1",
+  "version": "0.2.2",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/PiotrZapolski/booksy-mcp/releases/download/v0.2.1/booksy-mcp-0.2.1.mcpb",
-      "version": "0.2.1",
+      "identifier": "https://github.com/PiotrZapolski/booksy-mcp/releases/download/v0.2.2/booksy-mcp-0.2.2.mcpb",
+      "version": "0.2.2",
       "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "BOOKSY_MCP_WRITE_TOOLS",
+          "description": "Comma-separated write tools to enable, or \"all\" for those that do not reach clients. Writes are off by default.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "BOOKSY_MCP_DISABLED_TOOLS",
+          "description": "Comma-separated tools to turn off.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "BOOKSY_MCP_PORT",
+          "description": "Local port for the browser extension. Default 47821.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
+          "name": "BOOKSY_MCP_EXPORT_DIR",
+          "description": "Folder for exported reports. Default ~/BooksyExports.",
+          "isRequired": false,
+          "format": "filepath"
+        },
+        {
+          "name": "BOOKSY_MCP_MASK_CONTACTS",
+          "description": "Set to 1 to mask client phone numbers and e-mails in tool output.",
+          "isRequired": false,
+          "format": "boolean"
+        }
+      ]
+    },
+    {
+      "registryType": "npm",
+      "identifier": "booksy-biz-mcp",
+      "version": "0.2.2",
       "transport": {
         "type": "stdio"
       },

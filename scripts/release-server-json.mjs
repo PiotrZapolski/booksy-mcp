@@ -1,6 +1,7 @@
 // Writes the server.json that goes to the MCP Registry for one release:
 //   node scripts/release-server-json.mjs <bundle.mcpb> <output.json>
-// The identifier is the release asset URL and fileSha256 is the hash of that exact file.
+// The mcpb identifier is the release asset URL and fileSha256 is the hash of that exact file.
+// The npm entry gets the same version: the registry checks that this version exists on npm.
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
@@ -25,7 +26,7 @@ server.packages = server.packages.map((entry) =>
         version: pkg.version,
         fileSha256: sha256,
       }
-    : entry,
+    : { ...entry, version: pkg.version },
 );
 
 writeFileSync(output, `${JSON.stringify(server, null, 2)}\n`);
