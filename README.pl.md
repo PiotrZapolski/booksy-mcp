@@ -78,6 +78,23 @@ widzisz w Booksy.
 
 Po zbudowaniu projektu (`npm ci && npm run build`) uruchom `node dist/index.js setup`. Opcje: `--client claude-code|codex|claude-desktop|all`, `--dry-run` (tylko pokaż), `--uninstall` (usuń). Szczegółowe kroki znajdziesz w [INSTALL.md](INSTALL.md).
 
+## Claude Desktop: paczka bez budowania
+
+Każde [wydanie na GitHubie](https://github.com/PiotrZapolski/booksy-mcp/releases/latest) zawiera
+paczkę MCP Bundle, a oficjalny [MCP Registry](https://registry.modelcontextprotocol.io) ma ją pod
+nazwą `io.github.PiotrZapolski/booksy-mcp`. Nie musisz niczego klonować ani budować:
+
+1. Pobierz `booksy-mcp-<wersja>.mcpb` z najnowszego wydania i otwórz plik w Claude Desktop (albo
+   przeciągnij go do **Settings > Extensions**). Kliknij **Install**.
+2. Pobierz `booksy-mcp-extension-<wersja>.zip` z tego samego wydania i rozpakuj. W Chrome wejdź na
+   `chrome://extensions`, włącz **Tryb dewelopera**, kliknij **Załaduj rozpakowane** i wskaż
+   rozpakowany folder.
+3. Otwórz https://booksy.com/pro, zaloguj się i poproś asystenta o `session_status`. Pokaże
+   8-znakowy kod: kliknij ikonę **Booksy MCP Bridge**, wpisz kod i kliknij **Połącz** (Connect).
+
+Ustawienia paczki są w pliku `~/.config/booksy-mcp/config.json`, opis w sekcji
+[Configuration](README.md#configuration).
+
 ## Zadania zaplanowane
 
 `booksy-mcp job` pobiera stałą listę raportów i grafik bez klienta MCP i bez modelu językowego, np. co

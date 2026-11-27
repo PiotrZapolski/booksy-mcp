@@ -10,10 +10,13 @@
   "version": "0.2.0",
   "packages": [
     {
-      "registryType": "npm",
-      "identifier": "booksy-biz-mcp",
+      "registryType": "mcpb",
+      "identifier": "https://github.com/PiotrZapolski/booksy-mcp/releases/download/v0.2.0/booksy-mcp-0.2.0.mcpb",
       "version": "0.2.0",
-      "transport": { "type": "stdio" },
+      "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "transport": {
+        "type": "stdio"
+      },
       "environmentVariables": [
         {
           "name": "BOOKSY_MCP_WRITE_TOOLS",
