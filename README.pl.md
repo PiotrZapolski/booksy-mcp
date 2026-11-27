@@ -2,9 +2,11 @@
 
 [![Licencja: MIT](https://img.shields.io/badge/licencja-MIT-blue)](LICENSE)
 ![Node.js 20 lub nowszy](https://img.shields.io/badge/node-%3E%3D20-339933)
-![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)
+![Status: in daily use](https://img.shields.io/badge/status-in%20daily%20use-green)
 
-booksy-mcp to darmowy serwer MCP dla Booksy Biz na licencji MIT. Dzięki niemu Claude Code, Codex albo Claude Desktop czytają kalendarz salonu, grafiki pracowników, klientów, płatności i raporty przez Twoją własną, zalogowaną kartę w Chrome. Sesja nie opuszcza więc Twojego komputera: nie potrzebujesz klucza API, usługi w chmurze ani konta u strony trzeciej. Projekt jest nieoficjalny i w wersji wstępnej (pre-release).
+booksy-mcp to darmowy serwer MCP dla Booksy Biz na licencji MIT. Dzięki niemu Claude Code, Codex albo Claude Desktop czytają kalendarz salonu, grafiki pracowników, klientów, płatności i raporty przez Twoją własną, zalogowaną kartę w Chrome. Sesja nie opuszcza więc Twojego komputera: nie potrzebujesz klucza API, usługi w chmurze ani konta u strony trzeciej. Projekt jest nieoficjalny.
+
+**Status:** autor korzysta z booksy-mcp codziennie, na działającym panelu salonu w Booksy Biz. Booksy może w każdej chwili zmienić panel, więc któreś narzędzie może przestać działać, dopóki projekt nie nadąży za zmianą. Gdy tak się stanie, załóż issue. Pakietu nie ma jeszcze w npm ani w Chrome Web Store, więc na razie instaluj ze źródeł.
 
 > ### Zainstaluj w 3 minuty
 >
@@ -16,11 +18,6 @@ booksy-mcp to darmowy serwer MCP dla Booksy Biz na licencji MIT. Dzięki niemu C
 >
 > Resztę zrobi agent. Od Ciebie potrzeba tylko czterech rzeczy: włączyć w Chrome tryb dewelopera, kliknąć "Załaduj rozpakowane", wpisać kod parowania i zrestartować klienta (Claude Code, Codex lub Claude Desktop).
 
-> **Status: pre-release.** Narzędzia powstały na podstawie publicznego kodu JavaScript panelu i były
-> testowane na danych syntetycznych. Nie uruchomiono ich jeszcze na prawdziwym panelu, więc część
-> może wymagać poprawek. Zobacz [docs/verification.md](docs/verification.md). Pakietu nie ma jeszcze
-> w npm ani w Chrome Web Store.
-
 Narzędzie nieoficjalne: nie jest powiązane z Booksy, a Booksy go nie popiera ani nie wspiera.
 Najpierw przeczytaj o [ryzyku](README.md#risks).
 
@@ -31,9 +28,9 @@ nie jest tym projektem, więc go nie instaluj. Polecenie i repozytorium nadal na
 ## Kiedy użyć booksy-mcp, a kiedy nie?
 
 booksy-mcp ma sens, gdy chcesz, żeby asystent AI na Twoim komputerze czytał dane salonu, i godzisz
-się na [ryzyko](README.md#risks) związane z nieoficjalnym narzędziem w wersji wstępnej.
+się na [ryzyko](README.md#risks) związane z nieoficjalnym narzędziem.
 
-Na razie z niego nie korzystaj, jeśli potrzebujesz wspieranej albo sprawdzonej integracji, utrata
+Nie korzystaj z niego, jeśli potrzebujesz wspieranej integracji, utrata
 konta Booksy byłaby dla Ciebie dotkliwa, nie masz komputera z Chrome i otwartą, zalogowaną kartą
 panelu albo Twój asystent łączy się tylko ze zdalnymi serwerami MCP.
 
@@ -43,12 +40,12 @@ panelu albo Twój asystent łączy się tylko ze zdalnymi serwerami MCP.
 | Gdzie trafiają dane klientów | Z karty do lokalnego serwera i Twojego klienta MCP. Dostawca AI tego klienta może je przetwarzać. Eksporty zostają na Twoim dysku | Zależy od integracji partnera | Zależy od narzędzia, mogą trafiać też na jego serwery | Do plików na Twoim komputerze, a potem tam, gdzie je wyślesz |
 | Konto u strony trzeciej | booksy-mcp nie wymaga własnego konta. Nadal potrzebujesz logowania do Booksy Biz i klienta MCP | Dostęp partnerski | Zależy od narzędzia | Niepotrzebne |
 | Licencja | MIT | Poza zakresem tego porównania | Zależy od narzędzia | Nie dotyczy |
-| Dojrzałość | Pre-release, nieuruchomiony jeszcze na prawdziwym panelu ([weryfikacja](docs/verification.md)) | Nie oceniamy | Zależy od narzędzia | Robisz to ręcznie w panelu |
+| Dojrzałość | Autor używa go codziennie na działającym panelu; nieoficjalny, może przestać działać, gdy Booksy zmieni panel | Nie oceniamy | Zależy od narzędzia | Robisz to ręcznie w panelu |
 
 ## O co możesz zapytać asystenta?
 
-Na każde z tych pytań jest w kodzie narzędzie do odczytu. Narzędzi nie sprawdzono jeszcze na prawdziwym
-panelu, więc ważne odpowiedzi porównaj z tym, co widzisz w Booksy.
+Na każde z tych pytań jest w kodzie narzędzie do odczytu. Ważne odpowiedzi porównaj z tym, co
+widzisz w Booksy.
 
 - "Co mam jutro w kalendarzu?" (`calendar_agenda`)
 - "Kto ma wolne terminy w piątek?" (`calendar_open_slots`)
@@ -139,8 +136,7 @@ której jesteś zalogowany. Dotyczy to też zadań zaplanowanych.
 
 booksy-mcp ma narzędzia zapisu, które dodają, przenoszą i odwołują wizyty, ale wszystkie są
 domyślnie wyłączone. Każde włączasz na serwerze, w rozszerzeniu zaznaczasz **Allow writes**, a każdy
-zapis ma dwa kroki: próbę na sucho i potwierdzenie. Zapisów nigdy nie uruchomiono na prawdziwym
-panelu. Szczegóły: [Writes](README.md#writes).
+zapis ma dwa kroki: próbę na sucho i potwierdzenie. Szczegóły: [Writes](README.md#writes).
 
 ### Czy jest darmowy?
 

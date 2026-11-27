@@ -1,5 +1,8 @@
 # Live verification
 
+> Update 2026-11-27: the author runs booksy-mcp daily against a live Booksy Biz panel. The per-tool
+> checklist below predates that and has not been re-walked item by item.
+
 Most of this project comes from reading the panel's public JavaScript. A first passive look at a
 real Polish panel was done on 2026-11-02: GET requests the panel made by itself, nothing sent by this
 project. What it confirmed is marked `live` in [endpoints.md](endpoints.md). The tools themselves

@@ -2,9 +2,11 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Node.js 20 or newer](https://img.shields.io/badge/node-%3E%3D20-339933)
-![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)
+![Status: in daily use](https://img.shields.io/badge/status-in%20daily%20use-green)
 
-booksy-mcp is a free, MIT-licensed MCP server for Booksy Biz. It lets Claude Code, Codex or Claude Desktop read your salon's calendar, staff schedules, clients, payments and reports through your own logged-in Chrome tab, so your session never leaves your computer: no API key, no hosted service, no third-party account. It is unofficial and pre-release.
+booksy-mcp is a free, MIT-licensed MCP server for Booksy Biz. It lets Claude Code, Codex or Claude Desktop read your salon's calendar, staff schedules, clients, payments and reports through your own logged-in Chrome tab, so your session never leaves your computer: no API key, no hosted service, no third-party account. It is unofficial.
+
+**Status:** used daily by the author on a live Booksy Biz salon panel. Booksy can change its panel at any time, so a tool may break until this project catches up; please open an issue when one does. Not yet published to npm or the Chrome Web Store: install from source for now.
 
 > ### Install in 3 minutes
 >
@@ -16,18 +18,14 @@ booksy-mcp is a free, MIT-licensed MCP server for Booksy Biz. It lets Claude Cod
 >
 > Your agent does the setup. You only turn on Chrome Developer mode, click "Load unpacked", type a pairing code and restart the client. Or run `node dist/index.js setup` yourself after building (see [Install](#install)). Polish: [README.pl.md](README.pl.md).
 
-> **Status: pre-release.** The tools were built from the panel's public JavaScript and tested with
-> synthetic data. They have not yet been run against a live panel, so expect some to need fixes.
-> See [docs/verification.md](docs/verification.md). Not yet published to npm or the Chrome Web Store.
-
 Unofficial. Not affiliated with, endorsed by or supported by Booksy. Read [Risks](#risks) first.
 
 ## When should I use booksy-mcp, and when not?
 
 Use booksy-mcp when you want an AI assistant on your own computer to read your salon's data, and you
-accept [the risks](#risks) of an unofficial, pre-release tool.
+accept [the risks](#risks) of an unofficial tool.
 
-Do not use it yet if you need a supported or proven integration, if losing your Booksy account would
+Do not use it if you need a supported integration, if losing your Booksy account would
 hurt, if no computer with Chrome and an open, logged-in panel tab is available, or if your assistant
 can only connect to a remote MCP server.
 
@@ -37,12 +35,11 @@ can only connect to a remote MCP server.
 | Where client data goes | From your tab to your local server and your MCP client. The client's AI provider may process it. Exports are saved on your disk | Depends on the partner integration | Depends on the tool and may include its servers | Into files on your computer, then wherever you send them |
 | Third-party account needed | No account for booksy-mcp itself. You still need your Booksy Biz login and your MCP client | Partner access | Depends on the tool | No |
 | Licence | MIT | Not covered here | Depends on the tool | Not applicable |
-| Maturity | Pre-release, not yet run against a live panel ([verification](docs/verification.md)) | Not assessed here | Depends on the tool | Done by hand in the panel |
+| Maturity | In daily use by the author on a live panel; unofficial, can break when Booksy changes the panel | Not assessed here | Depends on the tool | Done by hand in the panel |
 
 ## What can I ask my assistant?
 
-These questions map to existing read tools. The tools have not been run against a live panel yet,
-so check important answers in the panel.
+These questions map to existing read tools. Check important answers in the panel.
 
 - "What is on my calendar tomorrow?" (`calendar_agenda`)
 - "Who has free time on Friday?" (`calendar_open_slots`)
@@ -547,8 +544,7 @@ are logged in. This applies to [scheduled jobs](#scheduled-jobs) too.
 
 booksy-mcp has [write tools](#writes) that book, move and cancel appointments, but all write tools are
 off by default. You have to enable each tool on the server and turn on **Allow writes** in the
-extension, and every write takes a dry run followed by a confirmation. Writes have never been run
-against a live panel.
+extension, and every write takes a dry run followed by a confirmation.
 
 ### Is it free?
 
@@ -577,7 +573,7 @@ npm run build
 - `src/shared/allowlist.ts`: every request this project can make.
 - `extension/src/page.ts`: the code that runs in the panel tab.
 - `docs/endpoints.md`: what the panel's public JavaScript shows.
-- `docs/verification.md`: what still has to be confirmed in a live panel.
+- `docs/verification.md`: the per-tool checklist for checks against a live panel.
 
 ## Licence
 
