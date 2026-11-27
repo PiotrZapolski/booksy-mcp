@@ -171,7 +171,8 @@ export function writeTool(definition: WriteDefinition): ToolDef {
         : 'by name or with "all" in BOOKSY_MCP_WRITE_TOOLS') +
       ' and turn on "Allow writes" in the extension. Call with mode=dry_run (default) to see the ' +
       'exact request and get a confirm_token without changing anything, show it to the user, then ' +
-      'repeat the call with mode=confirm and that token (valid once, for 5 minutes).',
+      'repeat the call with the same arguments, mode=confirm and that token (valid once, for 5 ' +
+      'minutes).',
     input: {
       ...definition.input,
       mode: z
