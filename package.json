@@ -1,5 +1,5 @@
 {
-  "name": "booksy-mcp",
+  "name": "booksy-biz-mcp",
   "version": "0.2.0",
   "description": "MCP server for Booksy Biz that works through your own logged-in browser tab. No session tokens leave the browser.",
   "license": "MIT",
@@ -54,8 +54,15 @@
     "mcp",
     "model-context-protocol",
     "booksy",
+    "booksy-biz",
     "salon",
     "barbershop",
+    "claude",
+    "codex",
     "chrome-extension"
-  ]
+  ],
+  "homepage": "https://piotrzapolski.com/booksy-mcp/",
+  "bugs": {
+    "url": "https://github.com/PiotrZapolski/booksy-mcp/issues"
+  }
 }

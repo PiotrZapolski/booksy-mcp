@@ -291,7 +291,7 @@ function findOnPath(name: string, platform: NodeJS.Platform): string | null {
 /** npx runs from a cache that may be cleaned, so the clients should start the server through npx too. */
 export function serverCommand(entry: string): ServerCommand {
   if (entry.includes('node_modules') || entry.includes('_npx')) {
-    return { command: 'npx', args: ['-y', 'booksy-mcp'] };
+    return { command: 'npx', args: ['-y', 'booksy-biz-mcp'] };
   }
   return { command: process.execPath, args: [entry] };
 }
