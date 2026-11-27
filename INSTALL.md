@@ -8,34 +8,37 @@ Run `node --version`. It must be v20 or newer. If not, tell the user to install 
 
 Chrome 121 or newer must be installed. You cannot check it reliably, so ask once: "Do you use Google Chrome on this computer?" If not, stop and say Chrome is required.
 
-## 2. Get the code
+## 2. Get the server
 
-The npm package `booksy-biz-mcp` is not published yet. Never install the npm package named `booksy-mcp`: it belongs to someone else and is not this project. Use a clone:
+The server is the npm package `booksy-biz-mcp`. `npx -y booksy-biz-mcp` downloads and runs it, so there is nothing to clone or build. Never install the npm package named `booksy-mcp`: it belongs to someone else and is not this project.
+
+Check that npx reaches the package. It must print a version:
 
 ```sh
-git clone https://github.com/PiotrZapolski/booksy-mcp.git ~/booksy-mcp-src
-cd ~/booksy-mcp-src && npm ci && npm run build
+npx -y booksy-biz-mcp --version
 ```
 
-If the folder exists, run `git pull` instead of `git clone`. (After npm publication, replace `node ~/booksy-mcp-src/dist/index.js` below with `npx -y booksy-biz-mcp`.)
+If npm is blocked on this computer, use the fallback in "Build from source" at the end and replace `npx -y booksy-biz-mcp` below with `node ~/booksy-mcp-src/dist/index.js`.
 
 ## 3. Run setup
 
 First a preview. It changes nothing:
 
 ```sh
-node ~/booksy-mcp-src/dist/index.js setup --dry-run
+npx -y booksy-biz-mcp setup --dry-run
 ```
 
 Read the output. Then run the real thing (add `--client claude-code|codex|claude-desktop` to pick one client):
 
 ```sh
-node ~/booksy-mcp-src/dist/index.js setup
+npx -y booksy-biz-mcp setup
 ```
 
-Setup adds the `booksy` server to every detected client, keeps other entries, saves a backup next to each edited file (`*.booksy-mcp.bak`), copies the extension to `~/booksy-mcp/extension` and tries to open `chrome://extensions` and that folder. It makes no network calls.
+Setup adds the `booksy` server to every detected client (each will start it with `npx -y booksy-biz-mcp`), keeps other entries, saves a backup next to each edited file (`*.booksy-mcp.bak`), copies the Chrome extension from the npm package to `~/booksy-mcp/extension` and tries to open `chrome://extensions` and that folder. Setup itself makes no network calls. npx downloads the package from npm.
 
 If it prints `failed`, show the user the message and stop. If it says no client was configured, ask which client they use and rerun with `--client`.
+
+If the extension folder is missing later, `npx -y booksy-biz-mcp extension ~/booksy-mcp/extension` copies it again and prints the path. The same extension is the file `booksy-mcp-extension-<version>.zip` on https://github.com/PiotrZapolski/booksy-mcp/releases/latest.
 
 ## 4. USER: load the extension
 
@@ -80,7 +83,7 @@ Rules to follow from now on: the tool paces requests on purpose (safe mode). Do 
 | No `booksy` tools in the client | Restart the client or `/mcp` reconnect. Check with `claude mcp list` or the client's config file. |
 | `bridge_not_connected` | Chrome must be open with the extension loaded and enabled. Tools wait up to 12 s for it. Check `chrome://extensions`, then call `session_status` again. |
 | `bridge_port_busy` | Another client runs booksy-mcp. Close it, or set `BOOKSY_MCP_PORT` for the server and the same port in the extension popup. |
-| No pairing code, not connected | Already paired in the past. Run `node ~/booksy-mcp-src/dist/index.js reset-pairing`, restart the client, call `session_status`. |
+| No pairing code, not connected | Already paired in the past. Run `npx -y booksy-biz-mcp reset-pairing`, restart the client, call `session_status`. |
 | Code rejected | Codes last 10 minutes and allow 5 tries. Call `session_status` for a fresh one. |
 | No panel tab / `tab_missing` | The user must open https://booksy.com/pro in Chrome and log in. |
 | Cooldown after a block | Stop. Tell the user. Booksy asked to slow down. After the time shown, check the panel works by hand, then `reset-cooldown` only if the user agrees. |
@@ -88,7 +91,18 @@ Rules to follow from now on: the tool paces requests on purpose (safe mode). Do 
 ## Uninstall
 
 ```sh
-node ~/booksy-mcp-src/dist/index.js setup --uninstall
+npx -y booksy-biz-mcp setup --uninstall
 ```
 
 Then the user removes **Booksy MCP Bridge** in `chrome://extensions` and restarts the client.
+
+## Build from source (fallback)
+
+Only when npx cannot be used:
+
+```sh
+git clone https://github.com/PiotrZapolski/booksy-mcp.git ~/booksy-mcp-src
+cd ~/booksy-mcp-src && npm ci && npm run build
+```
+
+If the folder exists, run `git pull` instead of `git clone`. Then use `node ~/booksy-mcp-src/dist/index.js` wherever this file says `npx -y booksy-biz-mcp`. Setup run this way registers the local build in the clients.

@@ -1,7 +1,8 @@
 name: release
 
-# A version tag builds the MCP Bundle, attaches it to the GitHub release and publishes server.json
-# to the official MCP Registry. No npm publication here.
+# A version tag publishes the package to npm (trusted publishing, no token), builds the MCP Bundle,
+# attaches it to the GitHub release and publishes server.json to the official MCP Registry.
+# The registry checks that the npm version exists, so npm goes first and a failure there stops the run.
 on:
   push:
     tags: ['v*']
@@ -19,9 +20,12 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write # create the release and upload its files
-      id-token: write # OIDC login to the MCP Registry
+      id-token: write # OIDC login to npm (trusted publishing) and to the MCP Registry
     env:
       MCP_PUBLISHER_VERSION: v1.8.16
+      # Trusted publishing needs npm 11.5.1 or newer and Node 22.14 or newer. Node 22 ships npm 10.
+      NPM_CLI_VERSION: 11.6.2
+      NPM_PACKAGE: booksy-biz-mcp
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ github.ref_name }}
     steps:
@@ -30,6 +34,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          registry-url: https://registry.npmjs.org
       - name: Tag matches package.json
         run: |
           set -euo pipefail
@@ -48,6 +53,30 @@ jobs:
         run: node scripts/build-mcpb.mjs
       - name: Bundle answers initialize and tools/list
         run: node scripts/smoke-stdio.mjs node build/mcpb/dist/index.js
+      - name: Publish to npm unless this version is already there
+        run: |
+          set -euo pipefail
+          published="$(npm view "$NPM_PACKAGE@$VERSION" version 2> /dev/null || true)"
+          if [ "$published" = "$VERSION" ]; then
+            echo "$NPM_PACKAGE@$VERSION is already on npm, skipping npm publish"
+            exit 0
+          fi
+          # The checks and the build ran above, so prepublishOnly is skipped.
+          if ! npx --yes "npm@$NPM_CLI_VERSION" publish --provenance --access public --ignore-scripts; then
+            echo "::error title=npm publish failed::$NPM_PACKAGE@$VERSION was not published to npm, so nothing was released and nothing was sent to the MCP Registry. Trusted publishing (OIDC) needs a trusted publisher for this package on npmjs.com: package Settings, Trusted Publisher, GitHub Actions, user PiotrZapolski, repository booksy-mcp, workflow release.yml, no environment, with 'npm publish' allowed. Add it and rerun this workflow, or publish $VERSION by hand and rerun."
+            exit 1
+          fi
+      - name: npm serves this version
+        run: |
+          set -euo pipefail
+          for _ in 1 2 3 4 5 6; do
+            if [ "$(npm view "$NPM_PACKAGE@$VERSION" version 2> /dev/null || true)" = "$VERSION" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error title=npm version missing::$NPM_PACKAGE@$VERSION is not visible on npm yet. Rerun this workflow in a few minutes: the MCP Registry rejects a version npm does not serve."
+          exit 1
       - name: GitHub release with the files
         run: |
           set -euo pipefail

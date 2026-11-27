@@ -11,7 +11,7 @@ import type { ToolContext, ToolDef } from './tools/define.js';
 import { selectTools } from './tools/index.js';
 import { Confirmations } from './writes/confirmations.js';
 
-export const SERVER_VERSION = '0.2.1';
+export const SERVER_VERSION = '0.2.2';
 
 const INSTRUCTIONS =
   'Reads a Booksy Biz panel through the user\'s own logged-in browser tab. Start with ' +

@@ -7,7 +7,7 @@
 
 booksy-mcp to darmowy serwer MCP dla Booksy Biz na licencji MIT. Dzięki niemu Claude Code, Codex albo Claude Desktop czytają kalendarz salonu, grafiki pracowników, klientów, płatności i raporty przez Twoją własną, zalogowaną kartę w Chrome. Sesja nie opuszcza więc Twojego komputera: nie potrzebujesz klucza API, usługi w chmurze ani konta u strony trzeciej. Projekt jest nieoficjalny.
 
-**Status:** autor korzysta z booksy-mcp codziennie, na działającym panelu salonu w Booksy Biz. Booksy może w każdej chwili zmienić panel, więc któreś narzędzie może przestać działać, dopóki projekt nie nadąży za zmianą. Gdy tak się stanie, załóż issue. Pakietu nie ma jeszcze w npm ani w Chrome Web Store, więc na razie instaluj ze źródeł.
+**Status:** autor korzysta z booksy-mcp codziennie, na działającym panelu salonu w Booksy Biz. Booksy może w każdej chwili zmienić panel, więc któreś narzędzie może przestać działać, dopóki projekt nie nadąży za zmianą. Gdy tak się stanie, załóż issue. Serwer jest w npm jako `booksy-biz-mcp`. Rozszerzenia Chrome nie ma w Chrome Web Store: polecenie `setup` rozpakowuje je do folderu, a Ty ładujesz je w trybie dewelopera.
 
 > ### Zainstaluj w 3 minuty
 >
@@ -17,13 +17,13 @@ booksy-mcp to darmowy serwer MCP dla Booksy Biz na licencji MIT. Dzięki niemu C
 > Zainstaluj booksy-mcp wg https://github.com/PiotrZapolski/booksy-mcp/blob/master/INSTALL.md i przeprowadź mnie przez to krok po kroku.
 > ```
 >
-> Resztę zrobi agent. Od Ciebie potrzeba tylko czterech rzeczy: włączyć w Chrome tryb dewelopera, kliknąć "Załaduj rozpakowane", wpisać kod parowania i zrestartować klienta (Claude Code, Codex lub Claude Desktop).
+> Resztę zrobi agent. Od Ciebie potrzeba tylko czterech rzeczy: włączyć w Chrome tryb dewelopera, kliknąć "Załaduj rozpakowane", wpisać kod parowania i zrestartować klienta (Claude Code, Codex lub Claude Desktop). Możesz też sam uruchomić `npx -y booksy-biz-mcp setup` (sekcja [Ręcznie, bez agenta](#ręcznie-bez-agenta)).
 
 Narzędzie nieoficjalne: nie jest powiązane z Booksy, a Booksy go nie popiera ani nie wspiera.
 Najpierw przeczytaj o [ryzyku](README.md#risks).
 
-Pakiet w npm będzie się nazywał `booksy-biz-mcp`. Pakiet `booksy-mcp` w npm należy do kogoś innego i
-nie jest tym projektem, więc go nie instaluj. Polecenie i repozytorium nadal nazywają się
+Pakiet w npm nazywa się [`booksy-biz-mcp`](https://www.npmjs.com/package/booksy-biz-mcp). Pakiet `booksy-mcp` w npm należy do kogoś innego i
+nie jest tym projektem, więc go nie instaluj. Polecenie w pakiecie i repozytorium nadal nazywają się
 `booksy-mcp`.
 
 ## Kiedy użyć booksy-mcp, a kiedy nie?
@@ -58,7 +58,7 @@ widzisz w Booksy.
 
 ## Co zobaczysz po drodze
 
-1. Agent sprawdzi Node.js (wersja 20 lub nowsza) i pobierze program.
+1. Agent sprawdzi Node.js (wersja 20 lub nowsza) i uruchomi instalator z npm (`npx -y booksy-biz-mcp setup`).
 2. Agent doda serwer `booksy` do Twojego klienta. Inne wpisy zostają, a przed zmianą powstaje kopia pliku.
 3. Agent rozpakuje rozszerzenie do folderu `~/booksy-mcp/extension` i poda Ci jego ścieżkę.
 4. Ty w Chrome: wejdź na `chrome://extensions`, włącz **Tryb dewelopera** (prawy górny róg), kliknij **Załaduj rozpakowane** i wskaż ten folder.
@@ -76,13 +76,51 @@ widzisz w Booksy.
 
 ## Ręcznie, bez agenta
 
-Po zbudowaniu projektu (`npm ci && npm run build`) uruchom `node dist/index.js setup`. Opcje: `--client claude-code|codex|claude-desktop|all`, `--dry-run` (tylko pokaż), `--uninstall` (usuń). Szczegółowe kroki znajdziesz w [INSTALL.md](INSTALL.md).
+Potrzebujesz Node.js 20 lub nowszego i Chrome 121 lub nowszego. Uruchom:
+
+```sh
+npx -y booksy-biz-mcp setup
+```
+
+Polecenie `setup` dodaje serwer do Claude Code, Codex i Claude Desktop (do tych, które znajdzie). Każdy
+klient uruchamia potem serwer przez `npx -y booksy-biz-mcp`, więc niczego nie klonujesz ani nie
+budujesz. Kopiuje też rozszerzenie Chrome z pakietu npm do folderu `~/booksy-mcp/extension`, próbuje otworzyć
+`chrome://extensions` i wypisuje kolejne kroki. Opcje: `--client claude-code|codex|claude-desktop|all`,
+`--dry-run` (tylko pokaż, nic nie zmieniaj), `--uninstall` (usuń), `--no-open`,
+`--extension-dir <folder>`.
+
+Skąd wziąć rozszerzenie Chrome: jest w pakiecie npm. `setup` rozpakowuje je do
+`~/booksy-mcp/extension`, a `npx -y booksy-biz-mcp extension <folder>` kopiuje je do wskazanego
+folderu i wypisuje ścieżkę. To samo rozszerzenie jest w każdym
+[wydaniu na GitHubie](https://github.com/PiotrZapolski/booksy-mcp/releases/latest) jako plik
+`booksy-mcp-extension-<wersja>.zip`. Ten folder wskazujesz w Chrome po kliknięciu
+**Załaduj rozpakowane**.
+
+Bez polecenia `setup` dodaj serwer sam. Claude Code:
+`claude mcp add booksy --scope user -- npx -y booksy-biz-mcp`. Claude Desktop
+(`claude_desktop_config.json`) i inne klienty z wpisem `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "booksy": {
+      "command": "npx",
+      "args": ["-y", "booksy-biz-mcp"]
+    }
+  }
+}
+```
+
+Tam, gdzie dokumentacja podaje `booksy-mcp <polecenie>`, przy npx wpisujesz
+`npx -y booksy-biz-mcp <polecenie>`. Inne drogi: paczka dla Claude Desktop (niżej) albo budowanie ze
+źródeł (`git clone`, `npm ci && npm run build`, potem `node dist/index.js setup`), opisane w sekcji
+[Install](README.md#install). Kroki dla agenta znajdziesz w [INSTALL.md](INSTALL.md).
 
 ## Claude Desktop: paczka bez budowania
 
 Każde [wydanie na GitHubie](https://github.com/PiotrZapolski/booksy-mcp/releases/latest) zawiera
-paczkę MCP Bundle, a oficjalny [MCP Registry](https://registry.modelcontextprotocol.io) ma ją pod
-nazwą `io.github.PiotrZapolski/booksy-mcp`. Nie musisz niczego klonować ani budować:
+paczkę MCP Bundle, a oficjalny [MCP Registry](https://registry.modelcontextprotocol.io) ma ją i
+pakiet npm pod nazwą `io.github.PiotrZapolski/booksy-mcp`. Z paczką nie potrzebujesz terminala:
 
 1. Pobierz `booksy-mcp-<wersja>.mcpb` z najnowszego wydania i otwórz plik w Claude Desktop (albo
    przeciągnij go do **Settings > Extensions**). Kliknij **Install**.
