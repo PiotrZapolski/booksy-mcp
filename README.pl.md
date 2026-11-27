@@ -3,6 +3,7 @@
 [![Licencja: MIT](https://img.shields.io/badge/licencja-MIT-blue)](LICENSE)
 ![Node.js 20 lub nowszy](https://img.shields.io/badge/node-%3E%3D20-339933)
 ![Status: in daily use](https://img.shields.io/badge/status-in%20daily%20use-green)
+[![PiotrZapolski/booksy-mcp MCP server](https://glama.ai/mcp/servers/PiotrZapolski/booksy-mcp/badges/score.svg)](https://glama.ai/mcp/servers/PiotrZapolski/booksy-mcp)
 
 booksy-mcp to darmowy serwer MCP dla Booksy Biz na licencji MIT. Dzięki niemu Claude Code, Codex albo Claude Desktop czytają kalendarz salonu, grafiki pracowników, klientów, płatności i raporty przez Twoją własną, zalogowaną kartę w Chrome. Sesja nie opuszcza więc Twojego komputera: nie potrzebujesz klucza API, usługi w chmurze ani konta u strony trzeciej. Projekt jest nieoficjalny.
 
