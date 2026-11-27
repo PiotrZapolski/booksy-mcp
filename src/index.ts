@@ -75,6 +75,16 @@ async function serve(): Promise<void> {
  */
 const JOB_CONNECT_WAIT_MS = 45_000;
 
+/**
+ * Ends the process only after stdout and stderr are written out. Writes to a pipe are
+ * asynchronous, so a plain process.exit() cuts a large result. The explicit exit stays, because
+ * the bridge or a timer may still hold the event loop.
+ */
+function exitAfterFlush(code: number): void {
+  process.exitCode = code;
+  process.stdout.write('', () => process.stderr.write('', () => process.exit(code)));
+}
+
 async function job(args: string[]): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
     process.stdout.write(JOB_HELP);
@@ -83,13 +93,15 @@ async function job(args: string[]): Promise<void> {
   const options = parseJobArgs(args);
   if ('error' in options) {
     console.error(`${options.error}\n\n${JOB_HELP}`);
-    process.exit(JOB_EXIT.nothing);
+    exitAfterFlush(JOB_EXIT.nothing);
+    return;
   }
   const config = loadConfig();
   const log = (line: string): void => console.error(`booksy-mcp job: ${line}`);
   if (options.agenda && config.redactPii) {
     log('--agenda needs customer phone numbers, and contact details are masked (redactPii).');
-    process.exit(JOB_EXIT.nothing);
+    exitAfterFlush(JOB_EXIT.nothing);
+    return;
   }
   const pairing = new Pairing(join(config.configDir, 'bridge-secret'));
   // The extension's service worker may be asleep and wakes up at least every 30 s to reconnect.
@@ -132,7 +144,7 @@ async function job(args: string[]): Promise<void> {
   } finally {
     await stop();
   }
-  process.exit(code);
+  exitAfterFlush(code);
 }
 
 function setup(args: string[]): void {
