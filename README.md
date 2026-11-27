@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Node.js 20 or newer](https://img.shields.io/badge/node-%3E%3D20-339933)
 ![Status: in daily use](https://img.shields.io/badge/status-in%20daily%20use-green)
+[![PiotrZapolski/booksy-mcp MCP server](https://glama.ai/mcp/servers/PiotrZapolski/booksy-mcp/badges/score.svg)](https://glama.ai/mcp/servers/PiotrZapolski/booksy-mcp)
 
 booksy-mcp is a free, MIT-licensed MCP server for Booksy Biz. It lets Claude Code, Codex or Claude Desktop read your salon's calendar, staff schedules, clients, payments and reports through your own logged-in Chrome tab, so your session never leaves your computer: no API key, no hosted service, no third-party account. It is unofficial.
 
