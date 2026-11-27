@@ -44,16 +44,34 @@ export const schema = {
     z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .describe(`${what} (YYYY-MM-DD)`),
+      .describe(`${what} (YYYY-MM-DD, for example 2026-03-15)`),
   dateTime: (what: string) =>
     z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
-      .describe(`${what} (YYYY-MM-DDTHH:mm, salon local time)`),
-  page: z.number().int().min(1).default(1).describe('Page number, from 1'),
-  perPage: z.number().int().min(1).max(100).default(20).describe('Items per page, at most 100'),
-  fresh: z.boolean().default(false).describe('Skip the local cache'),
+      .describe(`${what} (YYYY-MM-DDTHH:mm in salon local time, for example 2026-03-15T14:30)`),
+  page: z.number().int().min(1).default(1).describe('Page number, starting at 1. Default 1'),
+  perPage: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(20)
+    .describe('Items per page, from 1 to 100. Default 20'),
+  fresh: z
+    .boolean()
+    .default(false)
+    .describe(
+      'true asks Booksy again instead of using the local cache (answers are kept 1 to 10 minutes, ' +
+        'five times longer in safe mode). In safe mode an answer younger than 60 seconds is still ' +
+        'reused. Default false',
+    ),
 };
+
+/** Closing sentence of every tool built with readTool, so all of them say the same about the answer. */
+export const READ_ONLY_NOTE =
+  "Read-only. Returns Booksy's JSON plus business_id and from_cache (true when the answer came " +
+  'from the local cache).';
 
 function pick(args: Args, names: string[]): RequestOptions['params'] {
   const params: NonNullable<RequestOptions['params']> = {};
@@ -87,7 +105,7 @@ export function readTool(definition: SimpleRead): ToolDef {
   return {
     name: definition.name,
     title: definition.title,
-    description: definition.description,
+    description: `${definition.description} ${READ_ONLY_NOTE}`,
     input: { ...definition.input, fresh: schema.fresh },
     write: false,
     async handler(args, context) {
@@ -147,12 +165,29 @@ export function writeTool(definition: WriteDefinition): ToolDef {
     name: definition.name,
     title: definition.title,
     description:
-      `${definition.description} Two steps: call with mode=dry_run (default) to see the exact ` +
-      'request, then call again with the same arguments, mode=confirm and the confirm_token.',
+      `${definition.description} Write tool, off by default: enable it ` +
+      (definition.outreach
+        ? 'by name in BOOKSY_MCP_WRITE_TOOLS (not covered by "all", because it reaches clients)'
+        : 'by name or with "all" in BOOKSY_MCP_WRITE_TOOLS') +
+      ' and turn on "Allow writes" in the extension. Call with mode=dry_run (default) to see the ' +
+      'exact request and get a confirm_token without changing anything, show it to the user, then ' +
+      'repeat the call with mode=confirm and that token (valid once, for 5 minutes).',
     input: {
       ...definition.input,
-      mode: z.enum(['dry_run', 'confirm']).default('dry_run').describe('dry_run shows, confirm sends'),
-      confirm_token: z.string().optional().describe('Token from the dry run, needed with mode=confirm'),
+      mode: z
+        .enum(['dry_run', 'confirm'])
+        .default('dry_run')
+        .describe(
+          'dry_run (default) shows the exact request and sends no change. confirm sends it and ' +
+            'needs confirm_token',
+        ),
+      confirm_token: z
+        .string()
+        .optional()
+        .describe(
+          'Token returned by the dry run with the same arguments. Required with mode=confirm, ' +
+            'works once and expires after 5 minutes',
+        ),
     },
     write: true,
     async handler(args, context) {

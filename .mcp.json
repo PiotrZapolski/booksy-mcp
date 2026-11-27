@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "booksy": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "dist/index.js"
+      ]
+    }
+  }
+}

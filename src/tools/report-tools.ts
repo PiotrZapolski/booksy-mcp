@@ -34,15 +34,23 @@ export const DASHBOARDS = [
 
 const period = {
   date_from: schema.date('First day of the period'),
-  date_till: schema.date('Last day of the period'),
-  time_span: z.enum(TIME_SPANS).default('month').describe('Period type'),
+  date_till: schema.date('Last day of the period, inclusive. Safe mode allows at most 366 days'),
+  time_span: z
+    .enum(TIME_SPANS)
+    .default('month')
+    .describe(
+      'Period type the panel sends next to the two dates. Use between for a custom range. Default month',
+    ),
 };
 const periodQuery = ['date_from', 'date_till', 'time_span'];
 
 const filters = z
   .record(z.string(), z.union([z.string(), z.number(), z.array(z.union([z.string(), z.number()]))]))
   .optional()
-  .describe('Extra report filters from stats_report_metadata, such as staffer_id');
+  .describe(
+    'Extra report filters as an object of name and value, for example {"staffer_id": 12345}. The ' +
+      'names a report accepts come from stats_report_metadata. No filters when left out',
+  );
 
 function assertReportPeriod(args: Args, context: ToolContext): void {
   const { gateway } = context;
@@ -52,7 +60,11 @@ function assertReportPeriod(args: Args, context: ToolContext): void {
 const statsOverview = readTool({
   name: 'stats_overview',
   title: 'Statistics overview',
-  description: 'The main statistics dashboard for a period. The first read can take a minute.',
+  description:
+    'Returns the main statistics dashboard of the panel for a period: the headline figures ' +
+    'Booksy shows on the first statistics screen. Use it for a quick overview. One section in ' +
+    'depth is in stats_dashboard, and a single report in stats_report. The first read can take ' +
+    'over a minute, then the answer is cached for 10 minutes (50 in safe mode).',
   rule: 'stats.main',
   input: period,
   query: periodQuery,
@@ -62,9 +74,18 @@ const statsOverview = readTool({
 const statsDashboard = readTool({
   name: 'stats_dashboard',
   title: 'Statistics dashboard',
-  description: 'One statistics section with its figures and the list of reports inside it.',
+  description:
+    'Returns one section of the statistics screen for a period, with its figures and the list ' +
+    'of reports inside it. Use it for one topic such as revenue or ' +
+    'staff. stats_overview is the summary of all sections, and stats_report opens one of the ' +
+    'listed reports by key. Slow on the first read, then cached.',
   rule: 'stats.dashboard',
-  input: { ...period, dashboard: z.enum(DASHBOARDS).describe('Section') },
+  input: {
+    ...period,
+    dashboard: z
+      .enum(DASHBOARDS)
+      .describe('Section of the statistics screen to read, for example revenue'),
+  },
   query: [...periodQuery, 'dashboard'],
   check: assertReportPeriod,
 });
@@ -72,16 +93,22 @@ const statsDashboard = readTool({
 const reportMetadata = readTool({
   name: 'stats_report_metadata',
   title: 'Report filters',
-  description: 'What a report needs: its period limits and available filters.',
+  description:
+    'Returns what one report accepts: its period limits and the filters it offers. Call it ' +
+    'before stats_report or report_export when you want to filter, to get valid names for the ' +
+    'filters argument. Report keys come from stats_report_catalog.',
   rule: 'stats.metadata',
-  input: { report: schema.id('Report key') },
+  input: { report: schema.id('Report key from stats_report_catalog') },
   query: ['report'],
 });
 
 const billingCycles = readTool({
   name: 'stats_billing_cycles',
   title: 'Billing cycles',
-  description: 'Billing cycles usable as report periods.',
+  description:
+    'Lists the billing cycles of the business that the panel offers as report periods. Use it ' +
+    'when the user asks for figures per billing cycle: take the dates of a cycle as date_from ' +
+    'and date_till of stats_report or report_export.',
   rule: 'stats.billing_cycles',
 });
 
@@ -89,12 +116,20 @@ const report: ToolDef = {
   name: 'stats_report',
   title: 'Report as data',
   description:
-    'One report as JSON, as the panel shows it. Long reports are paged: use page, or report_export ' +
-    'for the whole report as a file.',
+    'Returns one statistics report as JSON for a period, as the panel shows it on screen. Use ' +
+    'it to read and reason about figures directly. Long reports come one page at a time: use ' +
+    'page, or report_export for the whole report as a file. Report keys come from ' +
+    'stats_report_catalog and filter names from stats_report_metadata. Read-only. Booksy can ' +
+    'take over a minute, then the answer is cached for 10 minutes (50 in safe mode).',
   input: {
     report_key: schema.id('Report key from stats_report_catalog'),
     ...period,
-    page: z.number().int().min(1).optional().describe('Page of the report'),
+    page: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe('Page of a long report, starting at 1. The first page when left out'),
     filters,
     fresh: schema.fresh,
   },
@@ -119,10 +154,17 @@ const report: ToolDef = {
 const section: ToolDef = {
   name: 'stats_report_section',
   title: 'Report section',
-  description: 'One section of a report, for example one staff member or a later page of a table.',
+  description:
+    'Returns one section of a statistics report as JSON, for example the part for one staff ' +
+    'member or a later page of a table. Use it only to follow up on stats_report or ' +
+    'stats_dashboard, with the section parameters their answer gave. For a whole report use ' +
+    'stats_report. Read-only, and slow on the first read like the other statistics tools.',
   input: {
     ...period,
-    filters: filters.describe('Section parameters as the report returned them'),
+    filters: filters.describe(
+      'Section parameters as an object of name and value, copied from the answer of ' +
+        'stats_report or stats_dashboard that pointed to this section',
+    ),
     fresh: schema.fresh,
   },
   write: false,
@@ -145,13 +187,18 @@ const catalog: ToolDef = {
   name: 'stats_report_catalog',
   title: 'Report catalogue',
   description:
-    'Every report key this salon can open, per statistics section. Booksy decides the keys by plan ' +
-    'and country, so they are read from the panel. Reads one section after another, so it is slow ' +
-    'the first time. Pass dashboard for just one section. A stop ends the reading, and the keys ' +
-    'found until then are returned.',
+    'Lists every report this salon can open, as reports with dashboard, key and title, plus ' +
+    'unavailable for sections the plan lacks. Call it first to get the report_key that ' +
+    'stats_report, stats_report_metadata and report_export need: Booksy decides the keys by plan ' +
+    'and country. Read-only. Without dashboard it reads all 8 sections one after another, which ' +
+    'is slow the first time. A stop by Booksy ends the reading, and the keys found until then ' +
+    'are returned with stopped_early.',
   input: {
     ...period,
-    dashboard: z.enum(DASHBOARDS).optional().describe('Only this section'),
+    dashboard: z
+      .enum(DASHBOARDS)
+      .optional()
+      .describe('Read only this section, for example staff. All 8 sections when left out'),
   },
   write: false,
   async handler(args, context) {
@@ -261,21 +308,37 @@ async function exportOne(context: ToolContext, options: ExportOptions): Promise<
 const output = z
   .enum(['file', 'csv', 'json'])
   .default('file')
-  .describe('file saves the panel file, csv also converts it, json also returns the rows');
+  .describe(
+    'file saves the file as Booksy sends it. csv also writes a CSV next to it for each sheet. ' +
+      'json also returns the rows in the answer. csv and json need an xlsx workbook: any other ' +
+      'file is saved as it came, with parse_error. Default file',
+  );
 
 const exportReport: ToolDef = {
   name: 'report_export',
   title: 'Export a report',
   description:
-    'Downloads any report the panel offers as a file and saves it on this computer. Can also ' +
-    'convert it to CSV or return the rows as JSON. Report keys come from stats_report_catalog. ' +
-    'Booksy can take over a minute to build a report.',
+    'Downloads one whole report for a period as the file the panel offers and ' +
+    'saves it in the export folder on this computer, returning the file path, size and content ' +
+    'type. It can also convert the file to CSV or return the rows as JSON. Use it when the full ' +
+    'report or a file is needed. stats_report reads a report page by page without a file, and ' +
+    'report_export_batch saves several reports. It changes nothing in Booksy but writes local ' +
+    'files. Booksy can take over a minute, and safe mode allows 15 exports a day, one minute apart.',
   input: {
     report_key: schema.id('Report key from stats_report_catalog'),
     ...period,
     filters,
     output,
-    max_rows: z.number().int().min(1).max(5000).default(500).describe('JSON rows per sheet'),
+    max_rows: z
+      .number()
+      .int()
+      .min(1)
+      .max(5000)
+      .default(500)
+      .describe(
+        'With output=json, how many rows of each sheet to return, from 1 to 5000. Default 500. ' +
+          'The saved file always holds all rows',
+      ),
   },
   write: false,
   handler: (args, context) =>
@@ -291,11 +354,18 @@ const exportBatch: ToolDef = {
   name: 'report_export_batch',
   title: 'Export several reports',
   description:
-    'Saves several reports for one period, strictly one after another, with a pause. A report that ' +
-    'fails does not stop the others. A block by Booksy or a used-up budget ends the batch, and what ' +
-    'was saved until then is listed. In safe mode a batch can have at most 5 reports.',
+    'Saves several reports for the same period as files in the export folder, strictly one ' +
+    'after another, and returns one result per report with its file path. Use it for a set of ' +
+    'reports, and report_export for a single report, for filters or for rows as JSON. A report ' +
+    'that fails does not stop the others, but a block by Booksy or a used-up budget ends the ' +
+    'batch, and what was saved until then is listed. It changes nothing in Booksy but writes ' +
+    'local files. Safe mode allows 5 reports per call and 15 exports a day, one minute apart.',
   input: {
-    report_keys: z.array(schema.id('Report key')).min(1).max(30).describe('Report keys'),
+    report_keys: z
+      .array(schema.id('Report key from stats_report_catalog'))
+      .min(1)
+      .max(30)
+      .describe('Report keys from stats_report_catalog, from 1 to 30 (at most 5 in safe mode)'),
     ...period,
     output: output,
   },
@@ -344,10 +414,24 @@ const DOCUMENTS = {
 const documentDownload: ToolDef = {
   name: 'document_download',
   title: 'Download a document',
-  description: 'Saves a cash register report, cash document, invoice or consent as a local file.',
+  description:
+    'Downloads one document from the panel and saves it in the export folder on this computer: ' +
+    'a cash register report (xlsx), or a cash document, invoice or consent as PDF. ' +
+    'Returns the file path, size and content type, not the content. Use it when the user needs ' +
+    'the file itself. The same records as data are in cash_register, invoice and ' +
+    'consents_signed, and statistics reports are saved with report_export. It changes nothing in ' +
+    'Booksy but writes a local file.',
   input: {
-    kind: z.enum(['cash_register_report', 'cash_document', 'invoice_pdf', 'consent_pdf']),
-    id: schema.id('Id of the document, register, invoice or consent'),
+    kind: z
+      .enum(['cash_register_report', 'cash_document', 'invoice_pdf', 'consent_pdf'])
+      .describe(
+        'What to download: cash_register_report (xlsx report of one register), cash_document ' +
+          '(PDF of one cash register document), invoice_pdf or consent_pdf',
+      ),
+    id: schema.id(
+      'Id that matches kind: a register id from cash_registers, a cash document id, an invoice ' +
+        'id from invoices, or a consent uuid from consents_signed',
+    ),
   },
   write: false,
   async handler(args, context) {
@@ -372,10 +456,15 @@ const documentDownload: ToolDef = {
 const clientFile: ToolDef = {
   name: 'customer_file_download',
   title: 'Download a client file',
-  description: 'Saves a file attached to a client card as a local file.',
+  description:
+    'Downloads one file attached to a client card and saves it in the export folder on this ' +
+    'computer, returning the file path, size and content type, not the content. Use it only ' +
+    'when the user asks for that attachment. The list of attached files and their ids is on ' +
+    'customer_card. The file can hold personal data, and it is saved exactly as stored, without ' +
+    'masking. It changes nothing in Booksy.',
   input: {
-    customerId: schema.id('Client id'),
-    attachedFileId: schema.id('File id from the client card'),
+    customerId: schema.id('Client id from customer_cards, for example 12345'),
+    attachedFileId: schema.id('Id of the attached file, from the client card returned by customer_card'),
   },
   write: false,
   async handler(args, context) {
@@ -403,9 +492,11 @@ const frameRequests: ToolDef = {
   name: 'stats_frame_requests',
   title: 'Requests of the report screen',
   description:
-    'A check for live verification. Open the statistics screen in the panel first. Shows which ' +
-    'addresses the report frame asked for by itself: address shapes and parameter names, without ' +
-    'ids, values or headers. Sends nothing to Booksy.',
+    'A diagnostic for maintainers, not for salon questions. Shows which addresses the ' +
+    'statistics frame of the panel asked for by itself: address shapes and parameter names, ' +
+    'without ids, values or headers. Use it only to check this project against the live panel ' +
+    '(docs/verification.md), after opening the statistics screen in the panel. Read-only, sends ' +
+    'nothing to Booksy and uses no budget. For statistics themselves use stats_overview.',
   input: {},
   write: false,
   async handler(_args, context) {

@@ -148,6 +148,8 @@ The extension asks for access to `booksy.com/pro`, the report frame on
 claude mcp add booksy -- node /path/to/booksy-mcp/dist/index.js
 ```
 
+The repository also ships a `.mcp.json` that starts the server from the local build (`node dist/index.js`), so Claude Code and other clients that read this file offer it when opened in the cloned folder after `npm run build`.
+
 **Claude Desktop** (`claude_desktop_config.json`)
 
 ```json
