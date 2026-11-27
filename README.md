@@ -96,6 +96,25 @@ Shortcut: `node dist/index.js setup` (or `npx -y booksy-biz-mcp setup` once publ
 
 You need Node.js 20 or newer and Chrome 121 or newer.
 
+### Claude Desktop: install the bundle
+
+Every [GitHub release](https://github.com/PiotrZapolski/booksy-mcp/releases/latest) carries an MCP
+Bundle, and the official [MCP Registry](https://registry.modelcontextprotocol.io) lists it as
+`io.github.PiotrZapolski/booksy-mcp`. With the bundle there is nothing to clone or build:
+
+1. Download `booksy-mcp-<version>.mcpb` from the latest release and open it with Claude Desktop (or
+   drag it into **Settings > Extensions**). Click **Install**.
+2. Download `booksy-mcp-extension-<version>.zip` from the same release and unzip it. In Chrome open
+   `chrome://extensions`, turn on **Developer mode**, click **Load unpacked** and pick the unzipped
+   folder.
+3. Pair as in [step 4](#4-pair) below.
+
+The bundle takes its settings from `~/.config/booksy-mcp/config.json`, see
+[Configuration](#configuration). The release also has the `server.json` sent to the registry, with
+the SHA-256 of the bundle.
+
+For Claude Code and Codex, or to build from source, follow the steps below.
+
 ### 1. Get the code
 
 Until the package is on npm, build it from source:
@@ -561,7 +580,13 @@ For MCP directories such as [mcpservers.org](https://mcpservers.org):
 - **Short description:** Booksy Biz through your own logged-in browser tab: calendar, staff, clients,
   payments and report exports, with calm traffic and writes off by default.
 
-The official MCP Registry entry is in [server.json](server.json).
+The official MCP Registry entry is `io.github.PiotrZapolski/booksy-mcp`. Its source is
+[server.json](server.json), and the release workflow fills in the bundle URL and SHA-256 for each
+version tag.
+
+The [Dockerfile](Dockerfile) exists for directories that inspect the server: the image starts on
+stdio and answers `initialize` and `tools/list` with no browser. For real use run the server on the
+computer where Chrome runs.
 
 ## Development
 
@@ -575,6 +600,11 @@ npm run build
 - `extension/src/page.ts`: the code that runs in the panel tab.
 - `docs/endpoints.md`: what the panel's public JavaScript shows.
 - `docs/verification.md`: the per-tool checklist for checks against a live panel.
+
+A release is a version tag: bump the version in `package.json`, `src/server.ts`, `server.json` and
+`mcpb/manifest.json` (a test keeps them equal), merge, then push the tag `v<version>`. The
+`release` workflow builds the bundle (`node scripts/build-mcpb.mjs`), attaches it to the GitHub
+release and publishes to the MCP Registry.
 
 ## Licence
 

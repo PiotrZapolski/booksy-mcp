@@ -1,0 +1,37 @@
+{
+  "manifest_version": "0.3",
+  "name": "booksy-mcp",
+  "display_name": "Booksy Biz",
+  "version": "0.2.0",
+  "description": "Booksy Biz through your own logged-in browser tab. No session tokens leave the browser.",
+  "long_description": "Reads a Booksy Biz salon panel (calendar, staff, clients, payments, report exports) through your own logged-in Chrome tab. It needs Chrome 121 or newer with the Booksy MCP Bridge extension, which is included in this bundle in the `extension/dist` folder and attached to every GitHub release as a zip. Traffic is paced on purpose and write tools are off by default. Unofficial, not affiliated with Booksy.",
+  "author": {
+    "name": "Piotr Zapolski",
+    "url": "https://piotrzapolski.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PiotrZapolski/booksy-mcp.git"
+  },
+  "homepage": "https://piotrzapolski.com/booksy-mcp/",
+  "documentation": "https://github.com/PiotrZapolski/booksy-mcp#readme",
+  "support": "https://github.com/PiotrZapolski/booksy-mcp/issues",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {}
+    }
+  },
+  "tools_generated": true,
+  "keywords": ["booksy", "booksy-biz", "salon", "barbershop", "calendar", "reports"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}
