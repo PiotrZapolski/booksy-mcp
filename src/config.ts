@@ -110,6 +110,11 @@ export interface Config {
   /** Write tools named in the configuration, or "all" for every write that does not reach clients. */
   writeTools: string[];
   disabledTools: string[];
+  /**
+   * Tool groups turned on besides "core", or "all". Kept as written: unknown names are reported by
+   * the server at start and never stop a command that does not list tools, such as a job.
+   */
+  toolGroups: string[];
 }
 
 interface FileConfig {
@@ -125,6 +130,8 @@ interface FileConfig {
   maskContacts?: boolean;
   writeTools?: string[];
   disabledTools?: string[];
+  /** A list of group names, or one string: "all" or names separated by commas. */
+  toolGroups?: string[] | string;
 }
 
 function list(value: string | undefined): string[] | undefined {
@@ -133,6 +140,12 @@ function list(value: string | undefined): string[] | undefined {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function groups(value: string[] | string | undefined): string[] | undefined {
+  if (typeof value === 'string') return list(value);
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((item): item is string => typeof item === 'string').flatMap((item) => list(item) ?? []);
 }
 
 function number(value: string | undefined): number | undefined {
@@ -200,5 +213,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       false,
     writeTools: list(env.BOOKSY_MCP_WRITE_TOOLS) ?? file.writeTools ?? [],
     disabledTools: list(env.BOOKSY_MCP_DISABLED_TOOLS) ?? file.disabledTools ?? [],
+    toolGroups: (list(env.BOOKSY_MCP_TOOL_GROUPS) ?? groups(file.toolGroups) ?? []).map((name) =>
+      name.toLowerCase(),
+    ),
   };
 }

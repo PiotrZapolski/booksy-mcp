@@ -136,7 +136,8 @@ Do not enable any write tool for this step. Leave "Allow writes" off in the exte
    connection. API calls to `pl.booksy.com` are made by the panel page, so they need no permission
    of the extension.
 3. Confirm that the panel's store is reachable: `session_status` shows the salon name.
-4. Run in this order, with a pause between them: `business_profile`, `service_menu`,
+4. Turn on every tool group for the check (`"toolGroups": "all"`, see README, Tool groups).
+   Run in this order, with a pause between them: `business_profile`, `service_menu`,
    `team_resources`, `calendar_agenda` for today, `staff_schedule` for this week, `stats_overview`,
    `stats_report_catalog` for one section, `report_export` for one report.
 5. Compare one day of `calendar_agenda` and one report with what the panel shows.

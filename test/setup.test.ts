@@ -25,6 +25,7 @@ function fixture(extra: Partial<SetupEnv> = {}) {
   const opened: string[] = [];
   const env: SetupEnv = {
     home,
+    configDir: join(home, '.config', 'booksy-mcp'),
     platform: 'linux',
     nodeVersion: 'v22.1.0',
     packagedExtension: packaged,
@@ -50,6 +51,16 @@ describe('arguments', () => {
     expect(parseSetupArgs(['--client', 'vim'])).toHaveProperty('error');
     expect(parseSetupArgs(['--bogus'])).toHaveProperty('error');
     expect(parseSetupArgs(['--client'])).toHaveProperty('error');
+  });
+
+  it('parses --groups as a list, "all" or core, and rejects unknown groups', () => {
+    expect(parseSetupArgs([])).not.toHaveProperty('groups');
+    expect(parseSetupArgs(['--groups', 'payments,Inventory'])).toMatchObject({ groups: ['payments', 'inventory'] });
+    expect(parseSetupArgs(['--groups', 'core,payments'])).toMatchObject({ groups: ['payments'] });
+    expect(parseSetupArgs(['--groups', 'core'])).toMatchObject({ groups: [] });
+    expect(parseSetupArgs(['--groups', 'all'])).toMatchObject({ groups: 'all' });
+    expect(parseSetupArgs(['--groups', 'paymets'])).toHaveProperty('error');
+    expect(parseSetupArgs(['--groups'])).toHaveProperty('error');
   });
 
   it('starts through npx when run from node_modules or the npx cache', () => {
@@ -181,5 +192,54 @@ describe('setup', () => {
     writeFileSync(join(dir, 'mine.txt'), 'x');
     runSetup({ ...base, uninstall: true }, env);
     expect(existsSync(join(dir, 'mine.txt'))).toBe(true);
+  });
+});
+
+describe('tool groups in setup', () => {
+  const configFile = (home: string) => join(home, '.config', 'booksy-mcp', 'config.json');
+  const desktop = (home: string) => mkdirSync(join(home, '.config', 'Claude'), { recursive: true });
+
+  it('leaves config.json alone without --groups', () => {
+    const { env, home } = fixture();
+    desktop(home);
+    mkdirSync(join(home, '.config', 'booksy-mcp'), { recursive: true });
+    writeFileSync(configFile(home), '{"toolGroups":"all","port":5}');
+    expect(runSetup({ ...base, open: false }, env)).toBe(0);
+    expect(readFileSync(configFile(home), 'utf8')).toBe('{"toolGroups":"all","port":5}');
+  });
+
+  it('creates no config.json without --groups', () => {
+    const { env, home } = fixture();
+    desktop(home);
+    expect(runSetup({ ...base, open: false }, env)).toBe(0);
+    expect(existsSync(configFile(home))).toBe(false);
+  });
+
+  it('saves the groups and keeps the other settings', () => {
+    const { env, home, log } = fixture();
+    desktop(home);
+    mkdirSync(join(home, '.config', 'booksy-mcp'), { recursive: true });
+    writeFileSync(configFile(home), '{"port":5,"writeTools":["appointment_move"]}');
+    expect(runSetup({ ...base, open: false, groups: ['payments', 'inventory'] }, env)).toBe(0);
+    expect(JSON.parse(readFileSync(configFile(home), 'utf8'))).toEqual({
+      port: 5,
+      writeTools: ['appointment_move'],
+      toolGroups: ['payments', 'inventory'],
+    });
+    expect(log.join('\n')).toContain('tool groups: core, payments, inventory');
+    expect(runSetup({ ...base, open: false, groups: 'all' }, env)).toBe(0);
+    expect(JSON.parse(readFileSync(configFile(home), 'utf8')).toolGroups).toBe('all');
+  });
+
+  it('writes nothing in a dry run or on uninstall, and fails on a broken file', () => {
+    const { env, home } = fixture();
+    desktop(home);
+    expect(runSetup({ ...base, dryRun: true, groups: 'all' }, env)).toBe(0);
+    expect(runSetup({ ...base, uninstall: true, groups: 'all' }, env)).toBe(0);
+    expect(existsSync(configFile(home))).toBe(false);
+    mkdirSync(join(home, '.config', 'booksy-mcp'), { recursive: true });
+    writeFileSync(configFile(home), '{broken');
+    expect(runSetup({ ...base, open: false, groups: 'all' }, env)).toBe(1);
+    expect(readFileSync(configFile(home), 'utf8')).toBe('{broken');
   });
 });

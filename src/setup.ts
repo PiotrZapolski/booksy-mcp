@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { ALL_GROUPS, CORE_GROUP, GROUP_NAMES, isGroupName } from './tools/groups.js';
 
 export type ClientId = 'claude-code' | 'codex' | 'claude-desktop';
 export const CLIENT_IDS: ClientId[] = ['claude-code', 'codex', 'claude-desktop'];
@@ -18,10 +19,14 @@ export interface SetupOptions {
   uninstall: boolean;
   open: boolean;
   extensionDir?: string;
+  /** Tool groups to save in config.json. Left out: the configuration is not touched. */
+  groups?: string[] | typeof ALL_GROUPS;
 }
 
 export interface SetupEnv {
   home: string;
+  /** Folder of config.json. */
+  configDir: string;
   platform: NodeJS.Platform;
   appData?: string;
   nodeVersion: string;
@@ -48,12 +53,16 @@ export function parseSetupArgs(argv: string[]): SetupOptions | { error: string }
     if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--uninstall') options.uninstall = true;
     else if (arg === '--no-open') options.open = false;
-    else if (arg === '--client' || arg === '--extension-dir') {
+    else if (arg === '--client' || arg === '--extension-dir' || arg === '--groups') {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) return { error: `${arg} needs a value.` };
       i += 1;
       if (arg === '--extension-dir') options.extensionDir = value;
-      else if (value === 'all' || (CLIENT_IDS as string[]).includes(value)) {
+      else if (arg === '--groups') {
+        const groups = parseGroups(value);
+        if ('error' in groups) return groups;
+        options.groups = groups.value;
+      } else if (value === 'all' || (CLIENT_IDS as string[]).includes(value)) {
         options.client = value as SetupOptions['client'];
       } else {
         return { error: `Unknown client "${value}". Use claude-code, codex, claude-desktop or all.` };
@@ -61,6 +70,48 @@ export function parseSetupArgs(argv: string[]): SetupOptions | { error: string }
     } else return { error: `Unknown option ${arg}.` };
   }
   return options;
+}
+
+/** "all", or a comma-separated list of groups. "core" alone means the default list. */
+function parseGroups(value: string): { value: string[] | typeof ALL_GROUPS } | { error: string } {
+  const names = value
+    .split(',')
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean);
+  if (names.length === 0) return { error: '--groups needs a value.' };
+  if (names.includes(ALL_GROUPS)) return { value: ALL_GROUPS };
+  const unknown = names.filter((name) => !isGroupName(name));
+  if (unknown.length > 0) {
+    return {
+      error: `Unknown tool group "${unknown.join('", "')}". Use ${GROUP_NAMES.join(', ')} or all.`,
+    };
+  }
+  return { value: [...new Set(names.filter((name) => name !== CORE_GROUP))] };
+}
+
+/** Saves the chosen tool groups in config.json and keeps every other setting of that file. */
+function setupGroups(
+  env: SetupEnv,
+  options: SetupOptions,
+): { ok: boolean; saved?: boolean; detail: string } | null {
+  if (options.groups === undefined || options.uninstall) return null;
+  const file = join(env.configDir, 'config.json');
+  const shown = options.groups === ALL_GROUPS ? 'all' : [CORE_GROUP, ...options.groups].join(', ');
+  try {
+    const before = existsSync(file) ? readFileSync(file, 'utf8') : '';
+    const config = (before.trim() ? JSON.parse(before) : {}) as Record<string, unknown>;
+    if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+      throw new Error('the file is not a JSON object');
+    }
+    const after = `${JSON.stringify({ ...config, toolGroups: options.groups }, null, 2)}\n`;
+    if (after === before) return { ok: true, detail: `${shown}. Already set in ${file}` };
+    if (options.dryRun) return { ok: true, detail: `would set ${shown} in ${file}` };
+    mkdirSync(env.configDir, { recursive: true });
+    writeFileSync(file, after);
+    return { ok: true, saved: true, detail: `${shown}. Saved in ${file}` };
+  } catch (error) {
+    return { ok: false, detail: `${file} not changed: ${(error as Error).message}` };
+  }
 }
 
 export function claudeDesktopConfigPath(env: Pick<SetupEnv, 'home' | 'platform' | 'appData'>): string {
@@ -244,12 +295,14 @@ export function runSetup(options: SetupOptions, env: SetupEnv): number {
     }
   }
   const extension = setupExtension(env, options);
+  const groups = setupGroups(env, options);
 
   const prefix = options.dryRun ? '[dry run] ' : '';
   for (const report of reports) env.log(`${prefix}${report.client}: ${report.status}. ${report.detail}`);
   env.log(`${prefix}extension: ${extension.detail}`);
+  if (groups) env.log(`${prefix}tool groups: ${groups.detail}`);
 
-  const failed = reports.some((r) => r.status === 'failed') || !extension.ok;
+  const failed = reports.some((r) => r.status === 'failed') || !extension.ok || groups?.ok === false;
   const changed = reports.filter((r) => r.status === 'configured' || r.status === 'removed');
   if (options.uninstall) {
     env.log('');
@@ -258,6 +311,11 @@ export function runSetup(options: SetupOptions, env: SetupEnv): number {
   }
   if (options.dryRun) return failed ? 1 : 0;
   if (failed) return 1;
+  if (changed.length === 0 && groups?.saved) {
+    env.log('');
+    env.log('Restart your MCP client so the new tool groups are listed.');
+    return 0;
+  }
   if (changed.length === 0) {
     env.log('');
     env.log('No MCP client was configured. Install Claude Code, Codex or Claude Desktop, or choose one with --client.');
@@ -300,6 +358,7 @@ export function realSetupEnv(entry: string, packagedExtension: string): SetupEnv
   const platform = process.platform;
   const env: SetupEnv = {
     home: homedir(),
+    configDir: process.env.BOOKSY_MCP_CONFIG_DIR ?? join(homedir(), '.config', 'booksy-mcp'),
     platform,
     nodeVersion: process.version,
     packagedExtension,

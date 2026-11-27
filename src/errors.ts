@@ -15,6 +15,7 @@ export type ErrorCode =
   | 'rule_rejected'
   | 'writes_disabled_in_extension'
   | 'tool_disabled'
+  | 'tool_group_disabled'
   | 'invalid_confirmation'
   | 'declined_by_user'
   | 'invalid_input'

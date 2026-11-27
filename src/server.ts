@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolRequestSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { join } from 'node:path';
 import type { Bridge, BridgeStatus } from './bridge/server.js';
 import type { Config } from './config.js';
@@ -8,14 +8,17 @@ import { BooksyError } from './errors.js';
 import { saveFile } from './exports/files.js';
 import { Gateway } from './gateway/gateway.js';
 import type { ToolContext, ToolDef } from './tools/define.js';
-import { selectTools } from './tools/index.js';
+import { resolveGroups, unknownGroupsWarning } from './tools/groups.js';
+import { groupRefusal, groupStatus, selectTools } from './tools/index.js';
 import { Confirmations } from './writes/confirmations.js';
 
-export const SERVER_VERSION = '0.2.2';
+export const SERVER_VERSION = '0.3.0';
 
 const INSTRUCTIONS =
   'Reads a Booksy Biz panel through the user\'s own logged-in browser tab. Start with ' +
-  'session_status. Requests are slow on purpose: they run one at a time with a gap, and safe mode ' +
+  'session_status. Only the core tools are listed by default: session_status shows the other ' +
+  'tool groups (payments, inventory, vouchers, marketing, business) and how the user turns them ' +
+  'on. Requests are slow on purpose: they run one at a time with a gap, and safe mode ' +
   'adds budgets. Never work around a stop or a cooldown. Prefer one ' +
   'precise call over several broad ones. Client data is personal data: use only what the task ' +
   'needs. Write tools need a dry run and then a confirmation from the user. Never call mode=confirm ' +
@@ -93,6 +96,7 @@ export function createServer(
     confirmations,
     snapshots,
     bridgeStatus: () => bridge.status(),
+    toolGroups: () => groupStatus(config),
     askUser,
     now: () => new Date(),
   };
@@ -123,5 +127,31 @@ export function createServer(
       },
     );
   }
+  explainDisabledGroups(server, config);
   return { server, gateway, tools };
+}
+
+/** What the configuration got wrong about tool groups, for stderr at start. Undefined when fine. */
+export function toolGroupWarning(config: Pick<Config, 'toolGroups'>): string | undefined {
+  const { unknown } = resolveGroups(config.toolGroups);
+  return unknown.length > 0 ? unknownGroupsWarning(unknown) : undefined;
+}
+
+type CallHandler = (request: unknown, extra: unknown) => Promise<unknown>;
+
+/**
+ * A call to a tool of a group that is off gets an answer that names the group and says how to
+ * turn it on, instead of the SDK's "tool not found". Every other call goes to the SDK unchanged.
+ * The SDK keeps its handlers in a private map, so without it this does nothing.
+ */
+function explainDisabledGroups(server: McpServer, config: Config): void {
+  const handlers = (server.server as unknown as { _requestHandlers?: Map<string, CallHandler> })
+    ._requestHandlers;
+  const original = handlers?.get('tools/call');
+  if (!original) return;
+  server.server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const refusal = groupRefusal(request.params.name, config);
+    if (refusal) return toErrorResult(new BooksyError('tool_group_disabled', refusal));
+    return (await original(request, extra)) as CallToolResult;
+  });
 }
