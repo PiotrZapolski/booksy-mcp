@@ -10,14 +10,14 @@ Chrome 121 or newer must be installed. You cannot check it reliably, so ask once
 
 ## 2. Get the code
 
-booksy-mcp is not on npm yet. Use a clone:
+The npm package `booksy-biz-mcp` is not published yet. Never install the npm package named `booksy-mcp`: it belongs to someone else and is not this project. Use a clone:
 
 ```sh
 git clone https://github.com/PiotrZapolski/booksy-mcp.git ~/booksy-mcp-src
 cd ~/booksy-mcp-src && npm ci && npm run build
 ```
 
-If the folder exists, run `git pull` instead of `git clone`. (After npm publication, replace `node ~/booksy-mcp-src/dist/index.js` below with `npx -y booksy-mcp`.)
+If the folder exists, run `git pull` instead of `git clone`. (After npm publication, replace `node ~/booksy-mcp-src/dist/index.js` below with `npx -y booksy-biz-mcp`.)
 
 ## 3. Run setup
 

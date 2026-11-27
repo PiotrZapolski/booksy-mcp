@@ -53,7 +53,10 @@ describe('arguments', () => {
   });
 
   it('starts through npx when run from node_modules or the npx cache', () => {
-    expect(serverCommand('/h/.npm/_npx/abc/node_modules/booksy-mcp/dist/index.js').command).toBe('npx');
+    expect(serverCommand('/h/.npm/_npx/abc/node_modules/booksy-biz-mcp/dist/index.js')).toEqual({
+      command: 'npx',
+      args: ['-y', 'booksy-biz-mcp'],
+    });
     expect(serverCommand('/h/booksy-mcp/dist/index.js').args).toEqual(['/h/booksy-mcp/dist/index.js']);
   });
 

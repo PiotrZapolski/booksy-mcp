@@ -1,5 +1,11 @@
 # booksy-mcp
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![Node.js 20 or newer](https://img.shields.io/badge/node-%3E%3D20-339933)
+![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)
+
+booksy-mcp is a free, MIT-licensed MCP server for Booksy Biz. It lets Claude Code, Codex or Claude Desktop read your salon's calendar, staff schedules, clients, payments and reports through your own logged-in Chrome tab, so your session never leaves your computer: no API key, no hosted service, no third-party account. It is unofficial and pre-release.
+
 > ### Install in 3 minutes
 >
 > Paste this into Claude Code or Codex:
@@ -10,15 +16,41 @@
 >
 > Your agent does the setup. You only turn on Chrome Developer mode, click "Load unpacked", type a pairing code and restart the client. Or run `node dist/index.js setup` yourself after building (see [Install](#install)). Polish: [README.pl.md](README.pl.md).
 
-An [MCP](https://modelcontextprotocol.io) server for **Booksy Biz**. It lets your AI assistant read
-your salon's calendar, staff schedules, clients, payments and reports through your own logged-in
-browser tab.
-
 > **Status: pre-release.** The tools were built from the panel's public JavaScript and tested with
 > synthetic data. They have not yet been run against a live panel, so expect some to need fixes.
 > See [docs/verification.md](docs/verification.md). Not yet published to npm or the Chrome Web Store.
 
 Unofficial. Not affiliated with, endorsed by or supported by Booksy. Read [Risks](#risks) first.
+
+## When should I use booksy-mcp, and when not?
+
+Use booksy-mcp when you want an AI assistant on your own computer to read your salon's data, and you
+accept [the risks](#risks) of an unofficial, pre-release tool.
+
+Do not use it yet if you need a supported or proven integration, if losing your Booksy account would
+hurt, if no computer with Chrome and an open, logged-in panel tab is available, or if your assistant
+can only connect to a remote MCP server.
+
+| | booksy-mcp | Official Booksy API | Tools that copy your session or run in the cloud | Manual export from the panel |
+| --- | --- | --- | --- | --- |
+| Where the login session is | In your own Chrome tab. No session token is read, copied or stored | Not covered here: it is for partners, with no self-serve access for salon owners | Copied out of your browser or held by a service, depending on the tool | In your browser |
+| Where client data goes | From your tab to your local server and your MCP client. The client's AI provider may process it. Exports are saved on your disk | Depends on the partner integration | Depends on the tool and may include its servers | Into files on your computer, then wherever you send them |
+| Third-party account needed | No account for booksy-mcp itself. You still need your Booksy Biz login and your MCP client | Partner access | Depends on the tool | No |
+| Licence | MIT | Not covered here | Depends on the tool | Not applicable |
+| Maturity | Pre-release, not yet run against a live panel ([verification](docs/verification.md)) | Not assessed here | Depends on the tool | Done by hand in the panel |
+
+## What can I ask my assistant?
+
+These questions map to existing read tools. The tools have not been run against a live panel yet,
+so check important answers in the panel.
+
+- "What is on my calendar tomorrow?" (`calendar_agenda`)
+- "Who has free time on Friday?" (`calendar_open_slots`)
+- "Which booking requests are waiting for confirmation?" (`appointment_requests`)
+- "Show this week's staff hours and time off." (`staff_schedule`)
+- "Find this client and show their past appointments." (`customer_cards`, `customer_visit_history`)
+- "Summarize last month's payments." (`payment_summary`)
+- "What do the latest reviews say?" (`reviews_feed`)
 
 ## Why it works through your browser
 
@@ -58,7 +90,11 @@ you would. [Safe mode](#safe-mode) is on by default and sets the numbers.
 
 ## Install
 
-Shortcut: `node dist/index.js setup` (or `npx -y booksy-mcp setup` once published) adds the server to Claude Code, Codex and Claude Desktop, unpacks the extension to `~/booksy-mcp/extension` and prints the next steps. Options: `--client claude-code|codex|claude-desktop|all`, `--dry-run`, `--uninstall`. Agents follow [INSTALL.md](INSTALL.md). The manual steps are below.
+The npm package name is `booksy-biz-mcp`, and it is not published yet. The npm package named
+`booksy-mcp` belongs to someone else and is not this project, so do not install it. The command and
+the repository are still called `booksy-mcp`.
+
+Shortcut: `node dist/index.js setup` (or `npx -y booksy-biz-mcp setup` once published) adds the server to Claude Code, Codex and Claude Desktop, unpacks the extension to `~/booksy-mcp/extension` and prints the next steps. Options: `--client claude-code|codex|claude-desktop|all`, `--dry-run`, `--uninstall`. Agents follow [INSTALL.md](INSTALL.md). The manual steps are below.
 
 You need Node.js 20 or newer and Chrome 121 or newer.
 
@@ -73,14 +109,14 @@ npm ci
 npm run build
 ```
 
-Once published, `npx -y booksy-mcp` will replace the path used below.
+Once published, `npx -y booksy-biz-mcp` will replace the path used below.
 
 ### 2. Load the extension
 
 1. Open `chrome://extensions` and turn on **Developer mode**.
 2. Click **Load unpacked** and pick the `extension/dist` folder.
 
-After publishing, `npx -y booksy-mcp extension` will copy the extension to a folder and print its
+After publishing, `npx -y booksy-biz-mcp extension` will copy the extension to a folder and print its
 path.
 
 The extension asks for access to `booksy.com/pro`, the report frame on
@@ -480,6 +516,44 @@ Read this before you use the tool. It is not legal advice.
   cost money.
 
 **You use this tool at your own risk.** It comes with no warranty, as the licence says.
+
+## FAQ
+
+### Does Booksy have an official API or MCP server for salon owners?
+
+booksy-mcp is an unofficial MCP server for Booksy Biz, not an official Booksy product. Booksy Biz has
+no self-serve API for salon owners: the official API is for partners. This project therefore works
+through the panel in your own browser.
+
+### Is booksy-mcp safe for my Booksy account?
+
+booksy-mcp cannot promise that your account is safe: Booksy can suspend or terminate an account for a
+breach of its terms, and some versions of the terms forbid automated tools. [Safe mode](#safe-mode)
+keeps traffic low and the tool stops after a 403, a 429 or a captcha, but this does not remove the
+risk. Read [Risks](#risks) before you use it.
+
+### Which MCP clients are supported?
+
+booksy-mcp setup configures Claude Code, Codex and Claude Desktop. The server runs locally over
+stdio and has no remote URL. `setup` does not configure the ChatGPT app; with OpenAI tools, the
+supported route is Codex.
+
+### Does it work without Chrome?
+
+No, booksy-mcp needs Chrome 121 or newer with its extension, plus an open Booksy Biz tab where you
+are logged in. This applies to [scheduled jobs](#scheduled-jobs) too.
+
+### Can it create or change bookings?
+
+booksy-mcp has [write tools](#writes) that book, move and cancel appointments, but all write tools are
+off by default. You have to enable each tool on the server and turn on **Allow writes** in the
+extension, and every write takes a dry run followed by a confirmation. Writes have never been run
+against a live panel.
+
+### Is it free?
+
+Yes, booksy-mcp is free and [MIT-licensed](LICENSE). Your Booksy account, your AI assistant and
+campaign SMS messages are separate and keep their own terms and prices.
 
 ## Directory listing
 
