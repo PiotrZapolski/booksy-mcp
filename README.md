@@ -40,14 +40,14 @@ can only connect to a remote MCP server.
 
 ## What can I ask my assistant?
 
-These questions map to existing read tools. Check important answers in the panel.
+These questions map to existing read tools. Your assistant starts with the 37 core tools, and the rest are in [tool groups](#tool-groups) you turn on. Check important answers in the panel.
 
 - "What is on my calendar tomorrow?" (`calendar_agenda`)
 - "Who has free time on Friday?" (`calendar_open_slots`)
 - "Which booking requests are waiting for confirmation?" (`appointment_requests`)
 - "Show this week's staff hours and time off." (`staff_schedule`)
 - "Find this client and show their past appointments." (`customer_cards`, `customer_visit_history`)
-- "Summarize last month's payments." (`payment_summary`)
+- "Summarize last month's payments." (`payment_summary`, needs the `payments` [tool group](#tool-groups))
 - "What do the latest reviews say?" (`reviews_feed`)
 
 ## Why it works through your browser
@@ -227,6 +227,7 @@ the names in the second column. Environment variables win.
 | Environment variable | `config.json` | Default | Meaning |
 | --- | --- | --- | --- |
 | `BOOKSY_MCP_WRITE_TOOLS` | `writeTools` | none | Write tools to enable, see [Writes](#writes) |
+| `BOOKSY_MCP_TOOL_GROUPS` | `toolGroups` | `core` only | Tool groups to list besides `core`, or `all`, see [Tool groups](#tool-groups) |
 | `BOOKSY_MCP_DISABLED_TOOLS` | `disabledTools` | none | Tools to turn off, reads included |
 | `BOOKSY_MCP_EXPORT_DIR` | `exportDir` | `~/BooksyExports` | Where files are saved |
 | `BOOKSY_MCP_REDACT_PII` | `redactPii` | off | Mask client e-mails and phone numbers, see [Security and privacy](#security-and-privacy) |
@@ -279,15 +280,63 @@ stops. The server warns about this at start and in `session_status`. You take th
 
 ## Tools
 
-Names follow Booksy's own resources: `<resource>_<action>`. There are many tools, so if your client
-loads all of them at start, turn off what you do not need with `BOOKSY_MCP_DISABLED_TOOLS`.
+Names follow Booksy's own resources: `<resource>_<action>`. There are 89 read tools and 17 write
+tools. Only the `core` group is listed by default, and single tools can still be turned off with
+`BOOKSY_MCP_DISABLED_TOOLS`.
+
+### Tool groups
+
+Your assistant sees **37 tools by default**: the `core` group, which covers what a salon uses every
+day. The other 52 read tools are in named groups that you turn on in the configuration. Fewer tools
+at start means the assistant picks the right one more often.
+
+| Group | Read tools | Write tools | What it contains |
+| --- | --- | --- | --- |
+| `core` | 37 | 15 | Always on. Session, calendar and appointments, staff and schedules, services, clients, reviews, notifications, waitlist, statistics and report exports |
+| `payments` | 17 | 0 | Payments, checkout transactions, wallet and payouts, cash registers, invoices, `document_download` |
+| `inventory` | 9 | 0 | Products, stock, warehouses, stock documents, brands, categories, suppliers |
+| `vouchers` | 7 | 0 | Vouchers and gift cards, consent forms, loyalty cards |
+| `marketing` | 8 | 2 | Message campaigns, SMS balance, client chat |
+| `business` | 10 | 0 | Business profile, visibility, booking rules, integrations and other settings |
+| `diagnostics` | 1 | 0 | `stats_frame_requests`, a check for verifying this project against a live panel |
+
+Turn groups on in `~/.config/booksy-mcp/config.json`:
+
+```json
+{ "toolGroups": ["payments", "inventory"] }
+```
+
+or with an environment variable, which wins over the file:
+
+```sh
+BOOKSY_MCP_TOOL_GROUPS=payments,inventory
+```
+
+`"toolGroups": "all"` (or `BOOKSY_MCP_TOOL_GROUPS=all`) lists all 89 read tools. The setup command
+saves the same choice for you: `npx -y booksy-biz-mcp setup --groups payments,inventory`, or
+`--groups all`, or `--groups core` to go back to the default. Without `--groups`, setup does not
+touch `config.json`. Restart your MCP client after a change.
+
+- **Updating from 0.2.x:** until 0.2.2 every tool was listed. To keep everything as before, set
+  `"toolGroups": "all"`.
+- `session_status` lists every group with its state and size and says how to turn one on, so your
+  assistant can tell you when a tool is missing because its group is off. Calling such a tool
+  returns the error `tool_group_disabled` with the name of the group.
+- Groups and writes are independent. A write tool is listed only when its group is on **and** it is
+  enabled as described in [Writes](#writes). `BOOKSY_MCP_DISABLED_TOOLS` still turns off single
+  tools.
+- An unknown group name is ignored, with a warning on stderr at start and in `session_status`.
+- [Scheduled jobs](#scheduled-jobs) do not depend on groups: `booksy-mcp job` works the same with
+  any setting.
 
 ### Read
 
-**Session and business**
+The group of each tool is in brackets after the heading or after the tool.
 
-- `session_status`: Shows whether the extension is connected, the pairing code when pairing is needed, the salon open in the panel, enabled write tools, the traffic mode, budget use and any cooldown.
-- `opening_hours`: Opening hours of the business, day by day, for the week of the given date.
+**Session and business** (`business`, except where marked)
+
+- `session_status` (`core`): Shows whether the extension is connected, the pairing code when pairing is needed, the salon open in the panel, enabled write tools, tool groups (on, off, size, how to turn one on), the traffic mode, budget use and any cooldown.
+- `opening_hours` (`core`): Opening hours of the business, day by day, for the week of the given date.
 - `business_accounts`: Lists the businesses the logged-in user can open in the panel.
 - `business_profile`: Public profile and core data of the business open in the panel tab.
 - `business_visibility`: Whether the business is visible and bookable on the marketplace.
@@ -299,7 +348,7 @@ loads all of them at start, turn off what you do not need with `BOOKSY_MCP_DISAB
 - `business_pos_settings`: Checkout and payment settings of the business.
 - `business_no_show_protection`: Deposit and cancellation fee settings per service.
 
-**Calendar and appointments**
+**Calendar and appointments** (`core`, except where marked)
 
 - `calendar_agenda`: Appointments between two dates.
 - `appointment_requests`: Appointments that wait for the salon to confirm or decline, from today on.
@@ -308,9 +357,9 @@ loads all of them at start, turn off what you do not need with `BOOKSY_MCP_DISAB
 - `calendar_month`: Counters and bookings for a month view of the calendar.
 - `calendar_changed_dates`: Dates with calendar changes since a Unix timestamp, as the panel polls them.
 - `appointment_details`: One appointment with its services, staff, client and price.
-- `appointment_payment_details`: Deposit, payment, tip and refund state of one appointment.
+- `appointment_payment_details` (`payments`): Deposit, payment, tip and refund state of one appointment.
 
-**Staff, stations and time**
+**Staff, stations and time** (`core`)
 
 - `team_resources`: Staff members and stations.
 - `staff_schedule`: Working hours and time off per staff member and day, to the minute, for any date range.
@@ -319,13 +368,13 @@ loads all of them at start, turn off what you do not need with `BOOKSY_MCP_DISAB
 - `resource_upcoming_bookings`: Next bookings of one staff member or station.
 - `time_block_details`: One calendar time block, such as a break or a reserved slot.
 
-**Services**
+**Services** (`core`)
 
 - `service_menu`: All service categories with services, variants, prices and durations.
 - `service_details`: One service with its variants and assigned staff.
 - `service_addons`: Add-ons that can be sold with services.
 
-**Clients**
+**Clients** (`core`)
 
 - `customer_cards`: Lists client cards, or searches them by name, phone or e-mail with query.
 - `customer_card`: Full client card: contact data, notes, tags, visit and spending counters.
@@ -335,7 +384,7 @@ loads all of them at start, turn off what you do not need with `BOOKSY_MCP_DISAB
 - `customer_tags`: Tags used on client cards.
 - `customer_file_download`: Saves a file attached to a client card as a local file.
 
-**Campaigns and chat**
+**Campaigns and chat** (`marketing`)
 
 - `campaign_estimate`: Number of recipients and SMS cost for a campaign.
 - `chat_conversations`: Client chat conversations, newest first.
@@ -346,12 +395,12 @@ loads all of them at start, turn off what you do not need with `BOOKSY_MCP_DISAB
 - `campaign_sms_balance`: SMS limits, used and free messages, and the price per part.
 - `chat_quick_actions`: Suggested quick actions for a client conversation.
 
-**Reviews and notifications**
+**Reviews and notifications** (`core`)
 
 - `reviews_feed`: Reviews of the business with ratings and replies.
 - `panel_notifications`: The notification list from the panel bell.
 
-**Reports and exports**
+**Reports and exports** (`core`, except where marked)
 
 - `stats_overview`: The main statistics dashboard for a period.
 - `stats_dashboard`: One statistics section with its figures and the list of reports inside it.
@@ -362,10 +411,10 @@ loads all of them at start, turn off what you do not need with `BOOKSY_MCP_DISAB
 - `stats_billing_cycles`: Billing cycles usable as report periods.
 - `report_export`: Downloads any report the panel offers as a file and saves it on this computer.
 - `report_export_batch`: Saves several reports for one period, strictly one after another.
-- `document_download`: Saves a cash register report, cash document, invoice or consent as a local file.
-- `stats_frame_requests`: A check for live verification. Shows which addresses the report frame asked for by itself, without ids, values or headers. Sends nothing to Booksy.
+- `document_download` (`payments`): Saves a cash register report, cash document, invoice or consent as a local file.
+- `stats_frame_requests` (`diagnostics`): A check for live verification. Shows which addresses the report frame asked for by itself, without ids, values or headers. Sends nothing to Booksy.
 
-**Payments (read only)**
+**Payments (read only)** (`payments`)
 
 - `payment_rows`: Payment list with method, status and amounts, like the panel payments screen.
 - `payment_summary`: Summary tiles of payments for a period.
@@ -383,7 +432,7 @@ loads all of them at start, turn off what you do not need with `BOOKSY_MCP_DISAB
 - `invoices`: Invoices issued in the panel.
 - `invoice`: One invoice.
 
-**Products and warehouse**
+**Products and warehouse** (`inventory`)
 
 - `product_catalog`: Products with stock and prices.
 - `product_stock_history`: Stock movements of one product in one warehouse.
@@ -395,21 +444,22 @@ loads all of them at start, turn off what you do not need with `BOOKSY_MCP_DISAB
 - `product_categories`: Product category tree.
 - `product_suppliers`: Product suppliers.
 
-**Vouchers, consents, loyalty, waitlist**
+**Vouchers, consents, loyalty, waitlist** (`vouchers`, except where marked)
 
 - `vouchers`: Vouchers, gift cards and packages sold.
 - `voucher_orders`: Voucher orders.
 - `voucher_templates`: Voucher templates.
 - `consent_forms`: Consent form templates.
 - `consents_signed`: Consents assigned to clients.
-- `waitlist`: Clients on the waitlist.
+- `waitlist` (`core`): Clients on the waitlist.
 - `loyalty_program`: The current stamp card program.
 - `loyalty_cards`: Client loyalty cards.
 
 ### Writes
 
 All write tools are **off by default**, and a disabled tool does not exist for your assistant. Turn
-on only what you need:
+on only what you need. 15 write tools are in the `core` group. `campaign_send` and `chat_reply`
+are in `marketing`, so they also need that [tool group](#tool-groups):
 
 ```sh
 BOOKSY_MCP_WRITE_TOOLS=appointment_move,appointment_confirm
@@ -420,7 +470,7 @@ BOOKSY_MCP_WRITE_TOOLS=appointment_move,appointment_confirm
 
 A write needs three things to go through:
 
-1. The tool is enabled on the server.
+1. The tool is enabled on the server, and its tool group is on.
 2. **Allow writes** is on in the extension popup. It is off by default.
 3. It passes two steps. A call with `mode=dry_run` shows the exact request, asks Booksy to validate
    it where the panel has a preview, and returns a `confirm_token`. A second call with the same

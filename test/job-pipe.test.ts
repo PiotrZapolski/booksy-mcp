@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -72,6 +72,8 @@ function fakeExtension(port: number, code: string, onCalendar: () => void): Prom
 describe('compiled job writing to a pipe', () => {
   it('prints a large agenda in full before it exits', async () => {
     const configDir = tempDir();
+    // The job does not list tools, so the tool groups, also a wrong name, must not change it.
+    writeFileSync(join(configDir, 'config.json'), JSON.stringify({ toolGroups: ['inventory', 'no-such-group'] }));
     const pairing = new Pairing(join(configDir, 'bridge-secret'));
     const server = new BridgeServer({ port: 0, extensionIds: [DEFAULT_EXTENSION_ID] }, pairing);
     await server.start();

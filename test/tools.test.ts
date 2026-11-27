@@ -23,25 +23,25 @@ const rule = (call: BridgeCall | undefined): string | undefined =>
 
 describe('tool selection', () => {
   it('has no write tool by default', () => {
-    expect(selectTools({ writeTools: [], disabledTools: [] }).filter((t) => t.write)).toEqual([]);
+    expect(selectTools({ writeTools: [], disabledTools: [], toolGroups: ['all'] }).filter((t) => t.write)).toEqual([]);
   });
 
   it('enables a single write by name', () => {
-    const names = selectTools({ writeTools: ['appointment_move'], disabledTools: [] })
+    const names = selectTools({ writeTools: ['appointment_move'], disabledTools: [], toolGroups: ['all'] })
       .filter((t) => t.write)
       .map((t) => t.name);
     expect(names).toEqual(['appointment_move']);
   });
 
   it('"all" leaves out tools that reach clients', () => {
-    const names = selectTools({ writeTools: ['all'], disabledTools: [] }).map((t) => t.name);
+    const names = selectTools({ writeTools: ['all'], disabledTools: [], toolGroups: ['all'] }).map((t) => t.name);
     expect(names).toContain('appointment_cancel');
     expect(names).not.toContain('campaign_send');
     expect(names).not.toContain('chat_reply');
   });
 
   it('tools that reach clients can be named one by one', () => {
-    const names = selectTools({ writeTools: ['campaign_send'], disabledTools: [] }).map((t) => t.name);
+    const names = selectTools({ writeTools: ['campaign_send'], disabledTools: [], toolGroups: ['all'] }).map((t) => t.name);
     expect(names).toContain('campaign_send');
   });
 
@@ -49,6 +49,7 @@ describe('tool selection', () => {
     const names = selectTools({
       writeTools: ['all'],
       disabledTools: ['appointment_cancel', 'reviews_feed'],
+      toolGroups: ['all'],
     }).map((t) => t.name);
     expect(names).not.toContain('appointment_cancel');
     expect(names).not.toContain('reviews_feed');

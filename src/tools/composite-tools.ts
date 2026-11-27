@@ -113,7 +113,11 @@ const session: ToolDef = {
   description:
     'Shows whether the browser extension is connected, the pairing code when pairing is needed, ' +
     'the salon open in the panel (name, id, country, timezone), the enabled write tools, the ' +
-    'traffic mode, budget use and any cooldown. Call it first in every session and again when ' +
+    'traffic mode, budget use and any cooldown. It also lists the tool groups in tool_groups: ' +
+    'only the core group is listed by default, and payments, inventory, vouchers, marketing, ' +
+    'business and diagnostics tools exist only after the user turns their group on. When a tool ' +
+    'the user asks for is missing, check tool_groups and tell them which group to enable ' +
+    '(how_to_enable says how). Call it first in every session and again when ' +
     'another tool fails: the next field says what the user has to do. Read-only and free of ' +
     'budget: it reads the open tab and sends nothing to Booksy.',
   input: {},
@@ -121,7 +125,12 @@ const session: ToolDef = {
   async handler(_args, context) {
     const bridge = context.bridgeStatus();
     const traffic = context.gateway.status();
-    const base = { bridge, traffic, write_tools: context.config.writeTools };
+    const base = {
+      bridge,
+      traffic,
+      write_tools: context.config.writeTools,
+      tool_groups: context.toolGroups(),
+    };
     const stopped = traffic.cooldown.active
       ? {
           next:

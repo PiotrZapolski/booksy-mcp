@@ -10,7 +10,7 @@ import { loadConfig, SAFE_MODE_OFF_WARNING } from './config.js';
 import { Gateway } from './gateway/gateway.js';
 import { TrafficLedger } from './gateway/ledger.js';
 import { JOB_EXIT, JOB_HELP, parseJobArgs, runAgenda, runJob } from './job.js';
-import { createServer, ledgerPath, SERVER_VERSION } from './server.js';
+import { createServer, ledgerPath, SERVER_VERSION, toolGroupWarning } from './server.js';
 import { parseSetupArgs, realSetupEnv, runSetup } from './setup.js';
 
 const HELP = `booksy-mcp ${SERVER_VERSION}
@@ -18,7 +18,9 @@ const HELP = `booksy-mcp ${SERVER_VERSION}
   booksy-mcp                     Start the MCP server on stdio (what MCP clients run).
   booksy-mcp setup               Add the server to your MCP clients and unpack the extension.
                                  Options: --client claude-code|codex|claude-desktop|all,
-                                 --dry-run, --uninstall, --no-open, --extension-dir <folder>.
+                                 --dry-run, --uninstall, --no-open, --extension-dir <folder>,
+                                 --groups <list|all|core> (tool groups listed besides core:
+                                 payments, inventory, vouchers, marketing, business, diagnostics).
   booksy-mcp extension [folder]  Copy the browser extension to a folder and print the path.
   booksy-mcp job [options]       Save reports and the staff schedule without an MCP client, for a
                                  scheduled task. See "booksy-mcp job --help".
@@ -50,6 +52,8 @@ async function serve(): Promise<void> {
   const { server } = createServer(bridge, config);
 
   if (!config.traffic.safeMode) console.error(`booksy-mcp: WARNING. ${SAFE_MODE_OFF_WARNING}`);
+  const groupWarning = toolGroupWarning(config);
+  if (groupWarning) console.error(`booksy-mcp: WARNING. ${groupWarning}`);
   const status = bridge.status();
   if (status.portBusy) {
     console.error(`booksy-mcp: port ${config.port} is busy. Tools will explain how to fix it.`);

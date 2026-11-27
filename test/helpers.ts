@@ -7,6 +7,7 @@ import { SnapshotStore } from '../src/domain/feed.js';
 import { Gateway } from '../src/gateway/gateway.js';
 import type { PanelContext, PanelResult } from '../src/shared/protocol.js';
 import type { ToolContext } from '../src/tools/define.js';
+import { groupStatus } from '../src/tools/index.js';
 import { Confirmations } from '../src/writes/confirmations.js';
 
 export const CONTEXT: PanelContext = {
@@ -64,6 +65,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     redactPii: false,
     writeTools: [],
     disabledTools: [],
+    toolGroups: [],
     ...overrides,
   };
 }
@@ -83,6 +85,7 @@ export function testContext(
     confirmations: new Confirmations(),
     snapshots: new SnapshotStore(join(config.stateDir)),
     bridgeStatus: () => bridge.status(),
+    toolGroups: () => groupStatus(config),
     now: () => new Date('2026-11-02T10:00:00Z'),
     ...overrides,
   };

@@ -7,12 +7,12 @@
     "url": "https://github.com/PiotrZapolski/booksy-mcp",
     "source": "github"
   },
-  "version": "0.2.2",
+  "version": "0.3.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/PiotrZapolski/booksy-mcp/releases/download/v0.2.2/booksy-mcp-0.2.2.mcpb",
-      "version": "0.2.2",
+      "identifier": "https://github.com/PiotrZapolski/booksy-mcp/releases/download/v0.3.0/booksy-mcp-0.3.0.mcpb",
+      "version": "0.3.0",
       "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "transport": {
         "type": "stdio"
@@ -21,6 +21,12 @@
         {
           "name": "BOOKSY_MCP_WRITE_TOOLS",
           "description": "Comma-separated write tools to enable, or \"all\" for those that do not reach clients. Writes are off by default.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "BOOKSY_MCP_TOOL_GROUPS",
+          "description": "Comma-separated tool groups to list besides core (payments, inventory, vouchers, marketing, business, diagnostics), or \"all\". Only the 37 core tools are listed by default.",
           "isRequired": false,
           "format": "string"
         },
@@ -53,7 +59,7 @@
     {
       "registryType": "npm",
       "identifier": "booksy-biz-mcp",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       },
@@ -61,6 +67,12 @@
         {
           "name": "BOOKSY_MCP_WRITE_TOOLS",
           "description": "Comma-separated write tools to enable, or \"all\" for those that do not reach clients. Writes are off by default.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "BOOKSY_MCP_TOOL_GROUPS",
+          "description": "Comma-separated tool groups to list besides core (payments, inventory, vouchers, marketing, business, diagnostics), or \"all\". Only the 37 core tools are listed by default.",
           "isRequired": false,
           "format": "string"
         },

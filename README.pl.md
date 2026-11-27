@@ -45,7 +45,7 @@ panelu albo Twój asystent łączy się tylko ze zdalnymi serwerami MCP.
 
 ## O co możesz zapytać asystenta?
 
-Na każde z tych pytań jest w kodzie narzędzie do odczytu. Ważne odpowiedzi porównaj z tym, co
+Na każde z tych pytań jest w kodzie narzędzie do odczytu. Asystent zaczyna od 37 narzędzi podstawowych, resztę włączasz w [grupach](#grupy-narzędzi). Ważne odpowiedzi porównaj z tym, co
 widzisz w Booksy.
 
 - "Co mam jutro w kalendarzu?" (`calendar_agenda`)
@@ -53,7 +53,7 @@ widzisz w Booksy.
 - "Które rezerwacje czekają na potwierdzenie?" (`appointment_requests`)
 - "Pokaż godziny pracy i nieobecności zespołu w tym tygodniu." (`staff_schedule`)
 - "Znajdź tego klienta i pokaż jego wcześniejsze wizyty." (`customer_cards`, `customer_visit_history`)
-- "Podsumuj płatności z zeszłego miesiąca." (`payment_summary`)
+- "Podsumuj płatności z zeszłego miesiąca." (`payment_summary`, wymaga [grupy](#grupy-narzędzi) `payments`)
 - "Co piszą klienci w ostatnich opiniach?" (`reviews_feed`)
 
 ## Co zobaczysz po drodze
@@ -87,7 +87,7 @@ klient uruchamia potem serwer przez `npx -y booksy-biz-mcp`, więc niczego nie k
 budujesz. Kopiuje też rozszerzenie Chrome z pakietu npm do folderu `~/booksy-mcp/extension`, próbuje otworzyć
 `chrome://extensions` i wypisuje kolejne kroki. Opcje: `--client claude-code|codex|claude-desktop|all`,
 `--dry-run` (tylko pokaż, nic nie zmieniaj), `--uninstall` (usuń), `--no-open`,
-`--extension-dir <folder>`.
+`--extension-dir <folder>`, `--groups <lista|all|core>` (zapisuje [grupy narzędzi](#grupy-narzędzi)).
 
 Skąd wziąć rozszerzenie Chrome: jest w pakiecie npm. `setup` rozpakowuje je do
 `~/booksy-mcp/extension`, a `npx -y booksy-biz-mcp extension <folder>` kopiuje je do wskazanego
@@ -133,6 +133,54 @@ pakiet npm pod nazwą `io.github.PiotrZapolski/booksy-mcp`. Z paczką nie potrze
 Ustawienia paczki są w pliku `~/.config/booksy-mcp/config.json`, opis w sekcji
 [Configuration](README.md#configuration).
 
+## Grupy narzędzi
+
+Asystent widzi domyślnie **37 narzędzi**: grupę `core`, czyli to, czego salon używa na co dzień.
+Pozostałe 52 narzędzia odczytu są w nazwanych grupach, które włączasz w konfiguracji. Mniej narzędzi
+na start to trafniejszy wybór właściwego.
+
+| Grupa | Narzędzia odczytu | Narzędzia zapisu | Co zawiera |
+| --- | --- | --- | --- |
+| `core` | 37 | 15 | Zawsze włączona. Sesja, kalendarz i wizyty, zespół i grafiki, usługi, klienci, opinie, powiadomienia, lista oczekujących, statystyki i eksport raportów |
+| `payments` | 17 | 0 | Płatności, transakcje kasowe, portfel i wypłaty, kasy, faktury, `document_download` |
+| `inventory` | 9 | 0 | Produkty, stany, magazyny, dokumenty magazynowe, marki, kategorie, dostawcy |
+| `vouchers` | 7 | 0 | Vouchery i karty podarunkowe, zgody, karty lojalnościowe |
+| `marketing` | 8 | 2 | Kampanie wiadomości, saldo SMS, czat z klientami |
+| `business` | 10 | 0 | Profil firmy, widoczność, zasady rezerwacji, integracje i pozostałe ustawienia |
+| `diagnostics` | 1 | 0 | `stats_frame_requests`, test do sprawdzania projektu na działającym panelu |
+
+Grupy włączasz w pliku `~/.config/booksy-mcp/config.json`:
+
+```json
+{ "toolGroups": ["payments", "inventory"] }
+```
+
+albo zmienną środowiskową, która ma pierwszeństwo przed plikiem:
+
+```sh
+BOOKSY_MCP_TOOL_GROUPS=payments,inventory
+```
+
+`"toolGroups": "all"` (albo `BOOKSY_MCP_TOOL_GROUPS=all`) pokazuje wszystkie 89 narzędzi odczytu.
+To samo zapisze za Ciebie polecenie setup: `npx -y booksy-biz-mcp setup --groups payments,inventory`,
+`--groups all` albo `--groups core` (powrót do listy domyślnej). Bez `--groups` setup nie rusza pliku
+`config.json`. Po zmianie zrestartuj klienta MCP.
+
+- **Aktualizujesz z 0.2.x?** Do wersji 0.2.2 asystent widział wszystkie narzędzia. Żeby mieć
+  wszystko jak dotąd, ustaw `"toolGroups": "all"`.
+- `session_status` pokazuje każdą grupę (włączona czy nie, ile ma narzędzi) i mówi, jak ją włączyć,
+  więc asystent powie Ci, że czegoś nie widzi, bo grupa jest wyłączona. Wywołanie takiego narzędzia
+  kończy się błędem `tool_group_disabled` z nazwą grupy.
+- Grupy i zapisy są od siebie niezależne. Narzędzie zapisu jest widoczne dopiero, gdy włączona jest
+  jego grupa **oraz** samo narzędzie (`BOOKSY_MCP_WRITE_TOOLS`, sekcja
+  [Writes](README.md#writes)). 15 narzędzi zapisu jest w `core`, a `campaign_send` i `chat_reply`
+  w `marketing`.
+- Nieznana nazwa grupy jest pomijana, z ostrzeżeniem przy starcie (stderr) i w `session_status`.
+- [Zadania zaplanowane](#zadania-zaplanowane) nie zależą od grup: `booksy-mcp job` działa tak samo
+  przy każdym ustawieniu.
+
+Pełna lista narzędzi z grupami: [README.md, Tools](README.md#tools).
+
 ## Zadania zaplanowane
 
 `booksy-mcp job` pobiera stałą listę raportów i grafik bez klienta MCP i bez modelu językowego, np. co
@@ -152,6 +200,7 @@ numer już masz.
 ## Gdy coś nie działa
 
 - Klient nie widzi narzędzi `booksy`: zrestartuj klienta (w Claude Code `/mcp` i połącz ponownie).
+- Brakuje jednego narzędzia (np. płatności, magazyn, kampanie): jego [grupa](#grupy-narzędzi) jest wyłączona. `session_status` pokaże która.
 - Błąd `bridge_not_connected`: Chrome musi być otwarty z włączonym rozszerzeniem.
 - Brak karty panelu: otwórz https://booksy.com/pro i zaloguj się.
 - Port zajęty: inny klient już używa booksy-mcp. Zamknij go.

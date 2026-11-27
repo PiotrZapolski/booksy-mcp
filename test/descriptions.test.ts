@@ -25,14 +25,14 @@ const inputSchema = (input: z.ZodRawShape): JsonSchema =>
   z.toJSONSchema(z.object(input), { io: 'input' }) as JsonSchema;
 
 describe('tool descriptions', () => {
-  it('89 read tools are listed by default, and 17 write tools only when enabled', () => {
-    expect(selectTools({ writeTools: [], disabledTools: [] })).toHaveLength(89);
+  it('89 read tools are listed with every group on, and 17 write tools only when enabled', () => {
+    expect(selectTools({ writeTools: [], disabledTools: [], toolGroups: ['all'] })).toHaveLength(89);
     expect(ALL_TOOLS.filter((tool) => tool.write)).toHaveLength(17);
   });
 
   it('an MCP client receives the descriptions of every tool and parameter', async () => {
     const writes = ALL_TOOLS.filter((tool) => tool.write).map((tool) => tool.name);
-    const { server } = createServer(new FakeBridge(), testConfig({ writeTools: writes }));
+    const { server } = createServer(new FakeBridge(), testConfig({ writeTools: writes, toolGroups: ['all'] }));
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     await server.connect(serverSide);
     const client = new Client({ name: 'test', version: '1' });

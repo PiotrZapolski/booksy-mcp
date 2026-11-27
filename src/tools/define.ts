@@ -8,12 +8,27 @@ import { getRule } from '../shared/allowlist.js';
 import type { ChatAction } from '../shared/protocol.js';
 import type { Confirmations } from '../writes/confirmations.js';
 
+/** What session_status says about tool groups. */
+export interface ToolGroupStatus {
+  groups: Array<{
+    name: string;
+    enabled: boolean;
+    contains: string;
+    read_tools: number;
+    write_tools: number;
+  }>;
+  unknown_in_config?: string[];
+  how_to_enable: string;
+}
+
 export interface ToolContext {
   gateway: Gateway;
   config: Config;
   confirmations: Confirmations;
   snapshots: SnapshotStore;
   bridgeStatus(): BridgeStatus;
+  /** Tool groups with their state. Tools outside an enabled group are not listed to the client. */
+  toolGroups(): ToolGroupStatus;
   /** Asks the user directly when the client supports it. Undefined means it cannot ask. */
   askUser?(message: string): Promise<boolean | undefined>;
   now(): Date;

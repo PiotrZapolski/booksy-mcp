@@ -28,7 +28,7 @@ First a preview. It changes nothing:
 npx -y booksy-biz-mcp setup --dry-run
 ```
 
-Read the output. Then run the real thing (add `--client claude-code|codex|claude-desktop` to pick one client):
+Read the output. Then run the real thing (add `--client claude-code|codex|claude-desktop` to pick one client). The assistant gets the 37 core tools by default (calendar, staff, services, clients, reviews, reports). Only if the user asks for more, add `--groups payments,inventory,vouchers,marketing,business` (any subset) or `--groups all`; without `--groups` an existing configuration is left as it is:
 
 ```sh
 npx -y booksy-biz-mcp setup
@@ -72,15 +72,16 @@ Call the tool `session_status`.
 
 ## 8. Test
 
-Call `business_profile`. It must return the salon name from the open panel. Tell the user which salon you see and ask whether it is the right one. Done. Suggest a first question, for example today's calendar.
+Call `session_status` again. Its `panel` field must show the salon name from the open panel. Tell the user which salon you see and ask whether it is the right one. Done. Suggest a first question, for example today's calendar.
 
-Rules to follow from now on: the tool paces requests on purpose (safe mode). Do not try to speed it up or work around a cooldown or a captcha. Write tools are off by default and the user enables them (see README, Writes).
+Rules to follow from now on: the tool paces requests on purpose (safe mode). Do not try to speed it up or work around a cooldown or a captcha. Write tools are off by default and the user enables them (see README, Writes). When a tool the user asks for is missing, `session_status` (`tool_groups`) says which tool group to turn on (see README, Tool groups).
 
 ## Problems
 
 | Symptom | Fix |
 | --- | --- |
 | No `booksy` tools in the client | Restart the client or `/mcp` reconnect. Check with `claude mcp list` or the client's config file. |
+| One tool is missing, or the error `tool_group_disabled` | Its tool group is off. `session_status` lists the groups. Turn one on with `npx -y booksy-biz-mcp setup --groups <group>` or `"toolGroups"` in `~/.config/booksy-mcp/config.json`, then restart the client. |
 | `bridge_not_connected` | Chrome must be open with the extension loaded and enabled. Tools wait up to 12 s for it. Check `chrome://extensions`, then call `session_status` again. |
 | `bridge_port_busy` | Another client runs booksy-mcp. Close it, or set `BOOKSY_MCP_PORT` for the server and the same port in the extension popup. |
 | No pairing code, not connected | Already paired in the past. Run `npx -y booksy-biz-mcp reset-pairing`, restart the client, call `session_status`. |
