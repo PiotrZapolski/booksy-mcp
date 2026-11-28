@@ -1,11 +1,11 @@
-# booksy-mcp
+# booksy-mcp: Booksy MCP server and unofficial Booksy API access for AI agents
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Node.js 20 or newer](https://img.shields.io/badge/node-%3E%3D20-339933)
 ![Status: in daily use](https://img.shields.io/badge/status-in%20daily%20use-green)
 [![PiotrZapolski/booksy-mcp MCP server](https://glama.ai/mcp/servers/PiotrZapolski/booksy-mcp/badges/score.svg)](https://glama.ai/mcp/servers/PiotrZapolski/booksy-mcp)
 
-booksy-mcp is a free, MIT-licensed MCP server for Booksy Biz. It lets Claude Code, Codex or Claude Desktop read your salon's calendar, staff schedules, clients, payments and reports through your own logged-in Chrome tab, so your session never leaves your computer: no API key, no hosted service, no third-party account. It is unofficial.
+booksy-mcp is a free, MIT-licensed Booksy MCP server. It lets Claude Code, Codex or Claude Desktop read your salon's calendar, staff schedules, clients, payments and reports through your own logged-in Chrome tab, so your session never leaves your computer: no API key, no hosted service, no third-party account. It is unofficial.
 
 **Status:** used daily by the author on a live Booksy Biz salon panel. Booksy can change its panel at any time, so a tool may break until this project catches up; please open an issue when one does. The server is on npm as `booksy-biz-mcp`. The Chrome extension is not in the Chrome Web Store: the `setup` command unpacks it and you load it in Developer mode.
 
@@ -49,6 +49,22 @@ These questions map to existing read tools. Your assistant starts with the 37 co
 - "Find this client and show their past appointments." (`customer_cards`, `customer_visit_history`)
 - "Summarize last month's payments." (`payment_summary`, needs the `payments` [tool group](#tool-groups))
 - "What do the latest reviews say?" (`reviews_feed`)
+
+## Is there a Booksy API?
+
+Booksy has an official API, but it is a partner API: Booksy grants access, and there is no self-serve
+key for salon owners. If you run a salon and want your own Booksy data in an AI assistant or a
+script, the realistic options are a manual export from the panel or a tool that works on your
+logged-in session. booksy-mcp is the second kind. It does not give you a REST API key. It gives your
+MCP client tools for the calendar, clients, staff, payments and reports, and the panel itself runs
+every request in your own Chrome tab.
+
+## Which Booksy MCP server should I choose?
+
+Check first where your login session goes. Some servers copy the session out of your browser or run
+in the cloud. With booksy-mcp the session never leaves your tab, because the panel itself sends every
+request. booksy-mcp is MIT-licensed, so you can also use it commercially. It does require a computer
+with Chrome and an open, logged-in panel tab.
 
 ## Why it works through your browser
 

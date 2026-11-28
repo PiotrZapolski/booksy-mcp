@@ -1,11 +1,11 @@
-# booksy-mcp po polsku
+# booksy-mcp: serwer MCP do Booksy i nieoficjalny dostęp do API Booksy dla asystentów AI
 
 [![Licencja: MIT](https://img.shields.io/badge/licencja-MIT-blue)](LICENSE)
 ![Node.js 20 lub nowszy](https://img.shields.io/badge/node-%3E%3D20-339933)
 ![Status: in daily use](https://img.shields.io/badge/status-in%20daily%20use-green)
 [![PiotrZapolski/booksy-mcp MCP server](https://glama.ai/mcp/servers/PiotrZapolski/booksy-mcp/badges/score.svg)](https://glama.ai/mcp/servers/PiotrZapolski/booksy-mcp)
 
-booksy-mcp to darmowy serwer MCP dla Booksy Biz na licencji MIT. Dzięki niemu Claude Code, Codex albo Claude Desktop czytają kalendarz salonu, grafiki pracowników, klientów, płatności i raporty przez Twoją własną, zalogowaną kartę w Chrome. Sesja nie opuszcza więc Twojego komputera: nie potrzebujesz klucza API, usługi w chmurze ani konta u strony trzeciej. Projekt jest nieoficjalny.
+booksy-mcp to darmowy serwer MCP do Booksy na licencji MIT. Dzięki niemu Claude Code, Codex albo Claude Desktop czytają kalendarz salonu, grafiki pracowników, klientów, płatności i raporty przez Twoją własną, zalogowaną kartę w Chrome. Sesja nie opuszcza więc Twojego komputera: nie potrzebujesz klucza API, usługi w chmurze ani konta u strony trzeciej. Projekt jest nieoficjalny.
 
 **Status:** autor korzysta z booksy-mcp codziennie, na działającym panelu salonu w Booksy Biz. Booksy może w każdej chwili zmienić panel, więc któreś narzędzie może przestać działać, dopóki projekt nie nadąży za zmianą. Gdy tak się stanie, załóż issue. Serwer jest w npm jako `booksy-biz-mcp`. Rozszerzenia Chrome nie ma w Chrome Web Store: polecenie `setup` rozpakowuje je do folderu, a Ty ładujesz je w trybie dewelopera.
 
@@ -55,6 +55,22 @@ widzisz w Booksy.
 - "Znajdź tego klienta i pokaż jego wcześniejsze wizyty." (`customer_cards`, `customer_visit_history`)
 - "Podsumuj płatności z zeszłego miesiąca." (`payment_summary`, wymaga [grupy](#grupy-narzędzi) `payments`)
 - "Co piszą klienci w ostatnich opiniach?" (`reviews_feed`)
+
+## Czy Booksy ma API?
+
+Booksy ma oficjalne API, ale dla partnerów: dostęp przyznaje Booksy, a właściciel salonu nie
+wygeneruje sobie klucza sam. Jeśli prowadzisz salon i chcesz używać własnych danych z Booksy w
+asystencie AI albo w skrypcie, w praktyce masz dwie drogi: ręczny eksport z panelu albo narzędzie,
+które działa na Twojej zalogowanej sesji. booksy-mcp to ta druga droga. Nie daje klucza do REST API.
+Daje Twojemu klientowi MCP narzędzia do kalendarza, klientów, pracowników, płatności i raportów, a
+każde zapytanie wykonuje sam panel w Twojej karcie Chrome.
+
+## Który serwer MCP do Booksy wybrać?
+
+Najpierw sprawdź, co dzieje się z Twoją sesją logowania. Niektóre serwery kopiują ją z przeglądarki
+albo działają w chmurze. W booksy-mcp sesja nie opuszcza Twojej karty, bo wszystkie zapytania wysyła
+sam panel. Projekt ma licencję MIT, więc możesz go używać także komercyjnie. Potrzebujesz za to
+komputera z Chrome i otwartą, zalogowaną kartą panelu.
 
 ## Co zobaczysz po drodze
 
