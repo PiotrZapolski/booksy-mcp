@@ -2,17 +2,17 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.PiotrZapolski/booksy-mcp",
   "title": "Booksy Biz",
-  "description": "Booksy Biz through your own logged-in browser tab. No session tokens leave the browser.",
+  "description": "Booksy MCP server: salon calendar, clients, staff and payments through your own Chrome tab.",
   "repository": {
     "url": "https://github.com/PiotrZapolski/booksy-mcp",
     "source": "github"
   },
-  "version": "0.3.0",
+  "version": "0.3.1",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/PiotrZapolski/booksy-mcp/releases/download/v0.3.0/booksy-mcp-0.3.0.mcpb",
-      "version": "0.3.0",
+      "identifier": "https://github.com/PiotrZapolski/booksy-mcp/releases/download/v0.3.1/booksy-mcp-0.3.1.mcpb",
+      "version": "0.3.1",
       "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "transport": {
         "type": "stdio"
@@ -59,7 +59,7 @@
     {
       "registryType": "npm",
       "identifier": "booksy-biz-mcp",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "transport": {
         "type": "stdio"
       },

@@ -12,7 +12,7 @@ import { resolveGroups, unknownGroupsWarning } from './tools/groups.js';
 import { groupRefusal, groupStatus, selectTools } from './tools/index.js';
 import { Confirmations } from './writes/confirmations.js';
 
-export const SERVER_VERSION = '0.3.0';
+export const SERVER_VERSION = '0.3.1';
 
 const INSTRUCTIONS =
   'Reads a Booksy Biz panel through the user\'s own logged-in browser tab. Start with ' +

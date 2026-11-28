@@ -1,7 +1,7 @@
 {
   "name": "booksy-biz-mcp",
-  "version": "0.3.0",
-  "description": "MCP server for Booksy Biz that works through your own logged-in browser tab. No session tokens leave the browser.",
+  "version": "0.3.1",
+  "description": "Booksy MCP server: Booksy Biz calendar, clients, staff and payments for Claude Code, Codex and Claude Desktop, through your own logged-in Chrome tab.",
   "license": "MIT",
   "type": "module",
   "mcpName": "io.github.PiotrZapolski/booksy-mcp",
@@ -59,7 +59,13 @@
     "barbershop",
     "claude",
     "codex",
-    "chrome-extension"
+    "chrome-extension",
+    "booksy-mcp",
+    "booksy-api",
+    "booksy-mcp-server",
+    "mcp-server",
+    "claude-code",
+    "appointment-scheduling"
   ],
   "homepage": "https://piotrzapolski.com/booksy-mcp/",
   "bugs": {
