@@ -1,9 +1,10 @@
+import { Script } from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
 import { pageCall, pageChat, pageContext, pageFrameRequests } from '../extension/src/page.js';
 import { hmacHex } from '../extension/src/crypto.js';
 import { proof } from '../src/bridge/pairing.js';
 
-const TOKEN = 'SESSION-TOKEN-VALUE';
+const TOKEN = 'example-session-for-tests';
 
 function installPanel(dispatch: (action: string, payload: never) => Promise<unknown>, state = {}) {
   const store = {
@@ -118,7 +119,7 @@ describe('pageCall', () => {
     for (const fn of [pageCall, pageContext, pageChat, pageFrameRequests]) {
       const source = fn.toString();
       expect(source).not.toMatch(/__vite|require\(|import\(/);
-      expect(() => new Function(`return (${source})`)).not.toThrow();
+      expect(() => new Script(`(${source})`)).not.toThrow();
     }
   });
 });
@@ -162,7 +163,7 @@ describe('pageFrameRequests', () => {
 
 describe('pageChat', () => {
   it('keeps the chat token inside the function', async () => {
-    const chatToken = 'CHAT-TOKEN-VALUE';
+    const chatToken = 'example-chat-for-tests';
     const dispatch = vi.fn(async (_action: string, payload: { url: string }) =>
       payload.url.endsWith('/config/')
         ? { status: 200, data: { api_key: 'key', stream_user_id: 'user' } }
